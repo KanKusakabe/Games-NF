@@ -37,27 +37,28 @@ code{background:#f0eee9;padding:.1rem .3rem;border-radius:4px}
 
 <section><h2>横断：単一フローで技量軸の意味を共通化</h2>
 <p>各ゲーム別々のフローだと、チェスの z₁ と Hanabi の z₁ は別モデルの別座標で、直接は比べられない。そこで
-<b>ゲームIDを条件（context）にした 1 つの条件付きフロー</b>を、<b>全ゲーム共通のスタイル記述子</b>
-<code>行動エントロピー・最頻行動シェア・切替率・前後半のブレ(drift)</code>（どのゲームでも同じ計算・同じ意味）に対して学習し、
-技量は<b>ゲーム内で標準化</b>してプールし、<code>z₁ ≈ 自分のゲーム内での相対技量</code>を全ゲームに課した。
-→ z₁ が<b>1 本の共通座標</b>になり、チェスの z₁＝+1 と Hanabi の z₁＝+1 が「どちらも自分のゲームの平均より約1σ上手」という<b>同じ意味</b>になる。</p>
+<b>ゲームIDを条件（context）にした 1 つの条件付きフロー</b>を学習し、技量は<b>ゲーム内で標準化</b>してプール、
+<code>z₁ ≈ 自分のゲーム内での相対技量</code>を全ゲームに課す。→ z₁ が<b>1 本の共通座標</b>になり、
+チェスの z₁＝+1 と Hanabi の z₁＝+1 が「どちらも自分のゲームの平均より約1σ上手」という<b>同じ意味</b>になる。
+入力の作り方を 2 通り比べた：<b>A</b>＝全ゲーム共通のスタイル記述子 <code>行動エントロピー・最頻行動シェア・切替率・前後半のブレ(drift)</code>（同じ計算・同じ意味）／
+<b>B</b>＝各ゲームの<b>固有特徴を小エンコーダで共通空間へ</b>（固有情報を捨てない）。</p>
 <img src="figures/crossgame_axis.png" alt="cross-game unified axis">
-<figcaption>左：全 6 ゲーム11,219人ぶんを 1 つの潜在へ（色＝ゲーム）。右：共通 z₁ vs ゲーム内で標準化した技量（全体 r=0.213）。</figcaption>
-<table><tr><th>ゲーム</th><th>種別</th><th>個別フロー<br>AUROC</th><th>単一フロー（共通軸）<br>AUROC</th><th>z₁×技量</th></tr>
-<tr><td>Ms.パックマン</td><td>1人用</td><td>0.796</td><td><b>0.808</b> ▲</td><td>0.539</td></tr><tr><td>Space Invaders</td><td>1人用</td><td>0.661</td><td><b>0.815</b> ▲</td><td>0.436</td></tr><tr><td>チェス</td><td>対戦</td><td>0.615</td><td><b>0.545</b> ▽</td><td>0.068</td></tr><tr><td>囲碁</td><td>対戦</td><td>0.546</td><td><b>0.581</b> ▲</td><td>0.092</td></tr><tr><td>Overcooked</td><td>協力</td><td>0.629</td><td><b>0.878</b> ▲</td><td>0.652</td></tr><tr><td>Hanabi(2人)</td><td>協力</td><td>0.826</td><td><b>0.802</b> ▽</td><td>0.473</td></tr>
-<tr><td colspan="3" style="text-align:right"><b>共通軸・全体 AUROC</b></td><td><b>0.635</b></td><td>0.213</td></tr></table>
+<figcaption>方式A：全 6 ゲーム11,219人ぶんを 1 つの潜在へ（色＝ゲーム）。右：共通 z₁ vs ゲーム内で標準化した技量（全体 r=0.213）。</figcaption>
+<img src="figures/crossgame_enc_axis.png" alt="encoder unified axis"><figcaption>方式B：各ゲームの<b>全特徴</b>を小さな線形エンコーダで共通6次元へ写し、同じ 1 フローに通す（全体 AUROC 0.636 / r=0.259）。</figcaption>
+<table><tr><th>ゲーム</th><th>種別</th><th>個別フロー</th><th>単一フロー・A<br>汎用4特徴</th><th>単一フロー・B<br>固有エンコーダ</th></tr>
+<tr><td>Ms.パックマン</td><td>1人用</td><td>0.796</td><td>0.808 ▲</td><td><b>0.775</b> ▽</td></tr><tr><td>Space Invaders</td><td>1人用</td><td>0.661</td><td>0.815 ▲</td><td><b>0.763</b> ▲</td></tr><tr><td>チェス</td><td>対戦</td><td>0.615</td><td>0.545 ▽</td><td><b>0.583</b> ▽</td></tr><tr><td>囲碁</td><td>対戦</td><td>0.546</td><td>0.581 ▲</td><td><b>0.588</b> ▲</td></tr><tr><td>Overcooked</td><td>協力</td><td>0.629</td><td>0.878 ▲</td><td><b>0.944</b> ▲</td></tr><tr><td>Hanabi(2人)</td><td>協力</td><td>0.826</td><td>0.802 ▽</td><td><b>0.773</b> ▽</td></tr>
+<tr><td colspan="3" style="text-align:right"><b>共通軸・全体 AUROC</b></td><td><b>0.635</b></td><td><b>0.636</b></td></tr></table>
 <p class="interp">たった<b>4 個の汎用スタイル特徴</b>・1 本の共通 z₁ で、全体 AUROC <b>0.635</b>。
-しかも <b>4/6 ゲーム</b>で個別フローに<b>並ぶ／上回る</b>（プールで統計的に強くなる＋過学習しにくい）。
-チェス・Hanabi は個別を少し下回る＝<b>ゲーム固有の特徴</b>（駒の使い方・ヒント構成）が効く分。
-「巧さは<b>行動の散らし方・切替・打ち筋のブレ</b>に共通して滲む」＝技量軸が<b>ゲームを跨いで意味を持つ</b>ことを示す。<b>▲</b>＝共通軸が個別以上。</p>
+「巧さは<b>行動の散らし方・切替・打ち筋のブレ</b>に共通して滲む」＝技量軸が<b>ゲームを跨いで意味を持つ</b>。<br>・<b>方式B（固有エンコーダ）</b>は各ゲームの全特徴を活かすので、<b>チェス（0.583）と Overcooked（0.944）</b>が回復・向上。ただし<b>ただ乗りではない</b>：プール学習は個別フローより難しく、Hanabi/SI は逆に少し落ちる。全体はA・Bとも <b>約0.635</b>＝<b>与える情報量に依らず共通軸は同じ水準</b>に着地する（＝軸の意味がゲームを跨いで安定）。
+<br><b>▲</b>＝個別フロー以上。</p>
 </section>
 <section><h2>Ms.パックマン（1人用）</h2><img src="figures/mspacman_axis.png" alt="mspacman"><figcaption>左:潜在 z₁-z₂ をスコアで色分け（右＝高スコア＝上手）。右:z₁(推定技量) vs 実スコア。</figcaption><p class="interp"><b>技量ラベル</b>＝スコア（10〜18981）。プレイスタイルだけから <b>初心者vs熟練 AUROC 0.796</b>・z₁とスコア相関 0.484。（教師つき軸は後付け方向 0.739 を上回る）</p></section><section><h2>Space Invaders（1人用）</h2><img src="figures/spaceinvaders_axis.png" alt="spaceinvaders"><figcaption>左:潜在 z₁-z₂ をスコアで色分け（右＝高スコア＝上手）。右:z₁(推定技量) vs 実スコア。</figcaption><p class="interp"><b>技量ラベル</b>＝スコア（5〜1960）。プレイスタイルだけから <b>初心者vs熟練 AUROC 0.661</b>・z₁とスコア相関 0.37。</p></section><section><h2>チェス（対戦）</h2><img src="figures/chess_axis.png" alt="chess"><figcaption>左:潜在 z₁-z₂ をレートで色分け（右＝高レート＝上手）。右:z₁(推定技量) vs 実レート。</figcaption><p class="interp"><b>技量ラベル</b>＝レート（856〜2240）。プレイスタイルだけから <b>初心者vs熟練 AUROC 0.615</b>・z₁とレート相関 0.173。</p></section><section><h2>囲碁（対戦）</h2><img src="figures/go_axis.png" alt="go"><figcaption>左:潜在 z₁-z₂ をランクで色分け（右＝高ランク＝上手）。右:z₁(推定技量) vs 実ランク。</figcaption><p class="interp"><b>技量ラベル</b>＝ランク（-4〜40）。プレイスタイルだけから <b>初心者vs熟練 AUROC 0.546</b>・z₁とランク相関 0.118。</p></section><section><h2>Overcooked（協力）</h2><img src="figures/overcooked_axis.png" alt="overcooked"><figcaption>左:潜在 z₁-z₂ を層内順位%で色分け（右＝高層内順位%＝上手）。右:z₁(推定技量) vs 実層内順位%。</figcaption><p class="interp"><b>技量ラベル</b>＝層内順位%（0〜100）。プレイスタイルだけから <b>初心者vs熟練 AUROC 0.629</b>・z₁と層内順位%相関 0.214。</p></section><section><h2>Hanabi(2人)（協力）</h2><img src="figures/hanabi_axis.png" alt="hanabi"><figcaption>左:潜在 z₁-z₂ を花火点で色分け（右＝高花火点＝上手）。右:z₁(推定技量) vs 実花火点。</figcaption><p class="interp"><b>技量ラベル</b>＝花火点（13〜25）。プレイスタイルだけから <b>初心者vs熟練 AUROC 0.826</b>・z₁と花火点相関 0.546。</p></section>
 <section><h2>正直な限界・次の一歩</h2><p class="interp">
 ・<b>3種の関わり方すべて</b>を同じ機構で通した：1人用（スコア）・対戦（レート/ランク）・協力（チーム点）。技量ラベルの正体はゲームごとに違うが、軸の作り方は共通。<br>
 ・技量軸は<b>ソフト</b>で、ゲームにより効き方が大きく違う。<b>Hanabi(0.83)とMs.パックマン(0.80)が最も鋭く</b>、<b>囲碁(0.55)が最も弱い</b>（盤の粗い配石＝線の位置分布だけでは段級位を読みにくい。定石・形・状態条件つき特徴が要る）。同じ協力でも Hanabi は鋭く、Overcooked は中程度（実人間trialが n=172 と小さく荒い）。<br>
 ・<b>スコア漏れに注意した</b>：Hanabi は「成功プレイ数＝点数」なので play率をそのまま特徴にすると点数がそのまま漏れる。あえて play/捨て札の量を捨て、プレイ<b>以外</b>の行動（色ヒント/数字ヒントの構成比）だけで軸を作った。それでも AUROC0.83 ＝<b>ヒント主体の協調スタイル</b>そのものが強さと結びつく、という中身のある結果。Overcooked はレイアウトごとに点の桁が違うので<b>レイアウト内の順位（％）</b>を技量ラベルにした。<br>
-・<b>軸の共通化は達成</b>（上の横断セクション）：ゲームIDを条件にした単一フロー＋汎用スタイル特徴で、z₁ が全ゲーム共通の相対技量座標になった。次は<b>ゲームごとの小エンコーダ→共通潜在</b>で、共通化しつつ固有特徴の鋭さも残す（チェス・Hanabiの取りこぼしを回収）。<br>
-・<b>Phase 2</b>：この技量軸で「ユーザのプレイをスコアリング」「初心者に一歩上のお手本や補助」を出すミニ機能。
+・<b>軸の共通化は達成</b>（上の横断セクション）：ゲームIDを条件にした単一フローで、z₁ が全ゲーム共通の相対技量座標に。入力を汎用4特徴（A）にしても、各ゲーム固有特徴を小エンコーダで共通空間へ写して（B）も、全体は約0.635で同水準＝<b>軸の意味は与える情報量に依らず安定</b>。固有エンコーダはチェス・Overcookedを回復させる一方、プール学習が難しくHanabi/SIは少し落ちる（ただ乗りではない）。<br>
+・<b>Phase 2（次）</b>：この共通技量軸で「ユーザのプレイをスコアリング」「初心者に一歩上のお手本や補助」を出すミニ機能。
 </p></section>
 <p class="sub"><code>python -m gamesnf.games</code> で自動生成。KAN-NF 実験群。</p>
 </body></html>

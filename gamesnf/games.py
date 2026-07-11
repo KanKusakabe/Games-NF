@@ -419,33 +419,49 @@ code{background:#f0eee9;padding:.1rem .3rem;border-radius:4px}
 
 
 def _cross_section(cg):
-    """HTML for the cross-game UNIFIED-axis section (one flow, game-ID context)."""
+    """HTML for the cross-game UNIFIED-axis section (one flow, game-ID context).
+
+    Two ways to unify: (A) 4 universal style features; (B) per-game encoders that
+    keep each game's own features. Shown side by side, honestly."""
     if not cg:
         return ""
+    has_enc = cg.get("overall_auc_enc") is not None
+    def mark(v, s):
+        return "" if (v is None or s is None) else (" ▲" if v >= s else " ▽")
     def cell(p):
-        u, s = p["auc_uni"], p.get("auc_sep")
-        mark = "" if s is None else (" ▲" if u >= s else " ▽")
+        s, u, e = p.get("auc_sep"), p["auc_uni"], p.get("auc_enc")
+        ecol = f'<td><b>{e}</b>{mark(e, s)}</td>' if has_enc else ""
         return (f'<tr><td>{p["name"]}</td><td>{p["mode"]}</td>'
-                f'<td>{"—" if s is None else s}</td><td><b>{u}</b>{mark}</td><td>{p["corr_uni"]}</td></tr>')
+                f'<td>{"—" if s is None else s}</td><td>{u}{mark(u, s)}</td>{ecol}</tr>')
     rows = "".join(cell(p) for p in cg["per_game"])
     feats = "・".join(cg["features"])
-    win = sum(1 for p in cg["per_game"] if p.get("auc_sep") is not None and p["auc_uni"] >= p["auc_sep"])
+    ehead = '<th>単一フロー・B<br>固有エンコーダ</th>' if has_enc else ""
+    erow = f'<td><b>{cg["overall_auc_enc"]}</b></td>' if has_enc else ""
+    encfig = (f'<img src="figures/crossgame_enc_axis.png" alt="encoder unified axis">'
+              f'<figcaption>方式B：各ゲームの<b>全特徴</b>を小さな線形エンコーダで共通{cg.get("enc_dim","")}次元へ写し、'
+              f'同じ 1 フローに通す（全体 AUROC {cg["overall_auc_enc"]} / r={cg["overall_corr_enc"]}）。</figcaption>') if has_enc else ""
+    enc = {p["key"]: p.get("auc_enc") for p in cg["per_game"]}
+    enc_note = (f"<br>・<b>方式B（固有エンコーダ）</b>は各ゲームの全特徴を活かすので、"
+                f"<b>チェス（{enc.get('chess')}）と Overcooked（{enc.get('overcooked')}）</b>が回復・向上。"
+                f"ただし<b>ただ乗りではない</b>：プール学習は個別フローより難しく、Hanabi/SI は逆に少し落ちる。"
+                f"全体はA・Bとも <b>約0.635</b>＝<b>与える情報量に依らず共通軸は同じ水準</b>に着地する（＝軸の意味がゲームを跨いで安定）。") if has_enc else ""
     return f"""
 <section><h2>横断：単一フローで技量軸の意味を共通化</h2>
 <p>各ゲーム別々のフローだと、チェスの z₁ と Hanabi の z₁ は別モデルの別座標で、直接は比べられない。そこで
-<b>ゲームIDを条件（context）にした 1 つの条件付きフロー</b>を、<b>全ゲーム共通のスタイル記述子</b>
-<code>{feats}</code>（どのゲームでも同じ計算・同じ意味）に対して学習し、
-技量は<b>ゲーム内で標準化</b>してプールし、<code>z₁ ≈ 自分のゲーム内での相対技量</code>を全ゲームに課した。
-→ z₁ が<b>1 本の共通座標</b>になり、チェスの z₁＝+1 と Hanabi の z₁＝+1 が「どちらも自分のゲームの平均より約1σ上手」という<b>同じ意味</b>になる。</p>
+<b>ゲームIDを条件（context）にした 1 つの条件付きフロー</b>を学習し、技量は<b>ゲーム内で標準化</b>してプール、
+<code>z₁ ≈ 自分のゲーム内での相対技量</code>を全ゲームに課す。→ z₁ が<b>1 本の共通座標</b>になり、
+チェスの z₁＝+1 と Hanabi の z₁＝+1 が「どちらも自分のゲームの平均より約1σ上手」という<b>同じ意味</b>になる。
+入力の作り方を 2 通り比べた：<b>A</b>＝全ゲーム共通のスタイル記述子 <code>{feats}</code>（同じ計算・同じ意味）／
+<b>B</b>＝各ゲームの<b>固有特徴を小エンコーダで共通空間へ</b>（固有情報を捨てない）。</p>
 <img src="figures/crossgame_axis.png" alt="cross-game unified axis">
-<figcaption>左：全 {cg["n_games"]} ゲーム{cg["n_total"]:,}人ぶんを 1 つの潜在へ（色＝ゲーム）。右：共通 z₁ vs ゲーム内で標準化した技量（全体 r={cg["overall_corr"]}）。</figcaption>
-<table><tr><th>ゲーム</th><th>種別</th><th>個別フロー<br>AUROC</th><th>単一フロー（共通軸）<br>AUROC</th><th>z₁×技量</th></tr>
+<figcaption>方式A：全 {cg["n_games"]} ゲーム{cg["n_total"]:,}人ぶんを 1 つの潜在へ（色＝ゲーム）。右：共通 z₁ vs ゲーム内で標準化した技量（全体 r={cg["overall_corr"]}）。</figcaption>
+{encfig}
+<table><tr><th>ゲーム</th><th>種別</th><th>個別フロー</th><th>単一フロー・A<br>汎用4特徴</th>{ehead}</tr>
 {rows}
-<tr><td colspan="3" style="text-align:right"><b>共通軸・全体 AUROC</b></td><td><b>{cg["overall_auc"]}</b></td><td>{cg["overall_corr"]}</td></tr></table>
+<tr><td colspan="3" style="text-align:right"><b>共通軸・全体 AUROC</b></td><td><b>{cg["overall_auc"]}</b></td>{erow}</tr></table>
 <p class="interp">たった<b>4 個の汎用スタイル特徴</b>・1 本の共通 z₁ で、全体 AUROC <b>{cg["overall_auc"]}</b>。
-しかも <b>{win}/{cg["n_games"]} ゲーム</b>で個別フローに<b>並ぶ／上回る</b>（プールで統計的に強くなる＋過学習しにくい）。
-チェス・Hanabi は個別を少し下回る＝<b>ゲーム固有の特徴</b>（駒の使い方・ヒント構成）が効く分。
-「巧さは<b>行動の散らし方・切替・打ち筋のブレ</b>に共通して滲む」＝技量軸が<b>ゲームを跨いで意味を持つ</b>ことを示す。<b>▲</b>＝共通軸が個別以上。</p>
+「巧さは<b>行動の散らし方・切替・打ち筋のブレ</b>に共通して滲む」＝技量軸が<b>ゲームを跨いで意味を持つ</b>。{enc_note}
+<br><b>▲</b>＝個別フロー以上。</p>
 </section>"""
 
 
@@ -495,8 +511,8 @@ def build_page(results, cg=None):
 ・<b>3種の関わり方すべて</b>を同じ機構で通した：1人用（スコア）・対戦（レート/ランク）・協力（チーム点）。技量ラベルの正体はゲームごとに違うが、軸の作り方は共通。<br>
 ・技量軸は<b>ソフト</b>で、ゲームにより効き方が大きく違う。<b>Hanabi(0.83)とMs.パックマン(0.80)が最も鋭く</b>、<b>囲碁(0.55)が最も弱い</b>（盤の粗い配石＝線の位置分布だけでは段級位を読みにくい。定石・形・状態条件つき特徴が要る）。同じ協力でも Hanabi は鋭く、Overcooked は中程度（実人間trialが n=172 と小さく荒い）。<br>
 ・<b>スコア漏れに注意した</b>：Hanabi は「成功プレイ数＝点数」なので play率をそのまま特徴にすると点数がそのまま漏れる。あえて play/捨て札の量を捨て、プレイ<b>以外</b>の行動（色ヒント/数字ヒントの構成比）だけで軸を作った。それでも AUROC0.83 ＝<b>ヒント主体の協調スタイル</b>そのものが強さと結びつく、という中身のある結果。Overcooked はレイアウトごとに点の桁が違うので<b>レイアウト内の順位（％）</b>を技量ラベルにした。<br>
-・<b>軸の共通化は達成</b>（上の横断セクション）：ゲームIDを条件にした単一フロー＋汎用スタイル特徴で、z₁ が全ゲーム共通の相対技量座標になった。次は<b>ゲームごとの小エンコーダ→共通潜在</b>で、共通化しつつ固有特徴の鋭さも残す（チェス・Hanabiの取りこぼしを回収）。<br>
-・<b>Phase 2</b>：この技量軸で「ユーザのプレイをスコアリング」「初心者に一歩上のお手本や補助」を出すミニ機能。
+・<b>軸の共通化は達成</b>（上の横断セクション）：ゲームIDを条件にした単一フローで、z₁ が全ゲーム共通の相対技量座標に。入力を汎用4特徴（A）にしても、各ゲーム固有特徴を小エンコーダで共通空間へ写して（B）も、全体は約0.635で同水準＝<b>軸の意味は与える情報量に依らず安定</b>。固有エンコーダはチェス・Overcookedを回復させる一方、プール学習が難しくHanabi/SIは少し落ちる（ただ乗りではない）。<br>
+・<b>Phase 2（次）</b>：この共通技量軸で「ユーザのプレイをスコアリング」「初心者に一歩上のお手本や補助」を出すミニ機能。
 </p></section>
 <p class="sub"><code>python -m gamesnf.games</code> で自動生成。KAN-NF 実験群。</p>
 </body></html>"""
@@ -542,7 +558,7 @@ def main():
     cg = None
     try:
         import crossgame
-        cg = crossgame.run(results)  # ONE flow, game-ID context, shared z1
+        cg = crossgame.run_all(results)  # ONE flow, game-ID context, shared z1 (A: 4 feats, B: encoders)
     except Exception as e:
         print("crossgame skipped:", repr(e))
     build_page(results, cg)

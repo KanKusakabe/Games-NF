@@ -9,7 +9,9 @@
    "n": 382,
    "auc_uni": 0.808,
    "corr_uni": 0.539,
-   "auc_sep": 0.796
+   "auc_sep": 0.796,
+   "auc_enc": 0.775,
+   "corr_enc": 0.439
   },
   {
    "key": "spaceinvaders",
@@ -18,7 +20,9 @@
    "n": 423,
    "auc_uni": 0.815,
    "corr_uni": 0.436,
-   "auc_sep": 0.661
+   "auc_sep": 0.661,
+   "auc_enc": 0.763,
+   "corr_enc": 0.332
   },
   {
    "key": "chess",
@@ -27,7 +31,9 @@
    "n": 7712,
    "auc_uni": 0.545,
    "corr_uni": 0.068,
-   "auc_sep": 0.615
+   "auc_sep": 0.615,
+   "auc_enc": 0.583,
+   "corr_enc": 0.154
   },
   {
    "key": "go",
@@ -36,7 +42,9 @@
    "n": 672,
    "auc_uni": 0.581,
    "corr_uni": 0.092,
-   "auc_sep": 0.546
+   "auc_sep": 0.546,
+   "auc_enc": 0.588,
+   "corr_enc": 0.23
   },
   {
    "key": "overcooked",
@@ -45,7 +53,9 @@
    "n": 172,
    "auc_uni": 0.878,
    "corr_uni": 0.652,
-   "auc_sep": 0.629
+   "auc_sep": 0.629,
+   "auc_enc": 0.944,
+   "corr_enc": 0.72
   },
   {
    "key": "hanabi",
@@ -54,7 +64,9 @@
    "n": 1858,
    "auc_uni": 0.802,
    "corr_uni": 0.473,
-   "auc_sep": 0.826
+   "auc_sep": 0.826,
+   "auc_enc": 0.773,
+   "corr_enc": 0.539
   }
  ],
  "n_games": 6,
@@ -65,5 +77,8 @@
   "最頻行動シェア",
   "切替率",
   "前後半のブレ(drift)"
- ]
+ ],
+ "overall_auc_enc": 0.636,
+ "overall_corr_enc": 0.259,
+ "enc_dim": 6
 }
