@@ -14,6 +14,15 @@ img{width:100%;border:1px solid #e5e5e5;border-radius:10px}
 figcaption{color:#555;margin-top:.3rem;font-size:.92rem}
 .interp{background:#faf8f5;border-left:3px solid #d97757;padding:.6rem .9rem;border-radius:0 8px 8px 0}
 code{background:#f0eee9;padding:.1rem .3rem;border-radius:4px}
+.p2grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem;margin:1rem 0}
+@media(max-width:640px){.p2grid{grid-template-columns:1fr}}
+.p2card{border:1px solid #e5e5e5;border-radius:12px;padding:.9rem 1rem;background:#fff}
+.p2h{font-weight:700;font-size:1.05rem;margin-bottom:.2rem}
+.bar{position:relative;height:8px;background:#eee;border-radius:5px;margin:.35rem 0 .1rem}
+.bar>span{position:absolute;top:-3px;width:3px;height:14px;background:#c2410c;border-radius:2px}
+.tips{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.35rem}
+.tip{font-size:.9rem;padding:.2rem .55rem;border-radius:999px;background:#f0eee9;border:1px solid #e5e5e5}
+.tip.up{background:#eaf5ec;border-color:#bfe0c6}.tip.dn{background:#fdeee6;border-color:#f3cbb2}
 </style></head><body>
 <div class="crumb"><a href="https://kankusakabe.github.io/KAN-NF/">&larr; KAN-NF 統括へ</a></div>
 <h1>Games-NF — ゲームの実プレイから「技量軸」を学ぶ</h1>
@@ -52,6 +61,15 @@ code{background:#f0eee9;padding:.1rem .3rem;border-radius:4px}
 「巧さは<b>行動の散らし方・切替・打ち筋のブレ</b>に共通して滲む」＝技量軸が<b>ゲームを跨いで意味を持つ</b>。<br>・<b>方式B（固有エンコーダ）</b>は各ゲームの全特徴を活かすので、<b>チェス（0.583）と Overcooked（0.944）</b>が回復・向上。ただし<b>ただ乗りではない</b>：プール学習は個別フローより難しく、Hanabi/SI は逆に少し落ちる。全体はA・Bとも <b>約0.635</b>＝<b>与える情報量に依らず共通軸は同じ水準</b>に着地する（＝軸の意味がゲームを跨いで安定）。
 <br><b>▲</b>＝個別フロー以上。</p>
 </section>
+
+<section><h2>Phase 2：技量軸で「採点」と「一歩上の助言」</h2>
+<p>学習した技量軸を実用に。各ゲームであるプレイヤーを<b>採点</b>（z₁パーセンタイル）し、<b>実際に上手い人（実技量で上位）</b>の
+プレイスタイルとの差から、<b>動かすべきクセ</b>を具体化する。生成や外挿はせず<b>100%実データ由来</b>——お手本は本当に強い実プレイヤー。
+助言の向きは<b>上位1/3と下位1/3のスタイル差</b>から決めるので個別の外れ値に振られない。実プレイ環境は作らないオフライン機能。</p>
+<div class="p2grid"><div class="p2card"><div class="p2h">Ms.パックマン <span class="sub">（1人用）</span></div><div class="sub">採点：技量軸 z₁ = <b>50</b> パーセンタイル（実技量 40%tile・スコア 1590.0）</div><div class="bar"><span style="left:50%"></span></div><div class="sub" style="margin-top:.55rem">一歩上（実技量トップ層 平均 スコア 5873.7）に近づくには：</div><div class="tips"><span class="tip up">▲ 動きの多様性を増やす</span><span class="tip dn">▼ 静止(NOOP)率を減らす</span></div></div><div class="p2card"><div class="p2h">Space Invaders <span class="sub">（1人用）</span></div><div class="sub">採点：技量軸 z₁ = <b>77</b> パーセンタイル（実技量 40%tile・スコア 515.0）</div><div class="bar"><span style="left:77%"></span></div><div class="sub" style="margin-top:.55rem">一歩上（実技量トップ層 平均 スコア 990.4）に近づくには：</div><div class="tips"><span class="tip up">▲ 動きの多様性を増やす</span><span class="tip dn">▼ 静止(NOOP)率を減らす</span><span class="tip up">▲ 方向切替率を増やす</span></div></div><div class="p2card"><div class="p2h">チェス <span class="sub">（対戦）</span></div><div class="sub">採点：技量軸 z₁ = <b>53</b> パーセンタイル（実技量 40%tile・レート 1537.0）</div><div class="bar"><span style="left:53%"></span></div><div class="sub" style="margin-top:.55rem">一歩上（実技量トップ層 平均 レート 1832.4）に近づくには：</div><div class="tips"><span class="tip up">▲ キャスリングを増やす</span></div></div><div class="p2card"><div class="p2h">囲碁 <span class="sub">（対戦）</span></div><div class="sub">採点：技量軸 z₁ = <b>12</b> パーセンタイル（実技量 40%tile・ランク 19.3）</div><div class="bar"><span style="left:12%"></span></div><div class="sub" style="margin-top:.55rem">一歩上（実技量トップ層 平均 ランク 28.1）に近づくには：</div><div class="tips"><span class="tip up">▲ 3線率を増やす</span><span class="tip up">▲ 盤の広がりを増やす</span></div></div><div class="p2card"><div class="p2h">Overcooked <span class="sub">（協力）</span></div><div class="sub">採点：技量軸 z₁ = <b>32</b> パーセンタイル（実技量 40%tile・層内順位% 40.0）</div><div class="bar"><span style="left:32%"></span></div><div class="sub" style="margin-top:.55rem">一歩上（実技量トップ層 平均 層内順位% 84.4）に近づくには：</div><div class="tips"><span class="tip dn">▼ 静止率を減らす</span><span class="tip up">▲ INTERACT率を増やす</span><span class="tip up">▲ 動きの多様性を増やす</span></div></div><div class="p2card"><div class="p2h">Hanabi(2人) <span class="sub">（協力）</span></div><div class="sub">採点：技量軸 z₁ = <b>16</b> パーセンタイル（実技量 40%tile・花火点 23.0）</div><div class="bar"><span style="left:16%"></span></div><div class="sub" style="margin-top:.55rem">一歩上（実技量トップ層 平均 花火点 25.0）に近づくには：</div><div class="tips"><span class="tip dn">▼ 捨て札比を減らす</span></div></div></div>
+<p class="interp">Hanabi は<b>▼捨て札比</b>（捨てるより情報を渡す）、Overcooked は<b>▲INTERACT・▼静止</b>（活発に動く）、
+囲碁は<b>▲3線・盤を広く</b>、チェスは<b>▲キャスリング</b>——いずれも定石的な上達方向と一致。
+採点 z₁ が実技量とズレる例（Space Invaders・囲碁）は、正直に<b>軸が弱いゲーム</b>を映している。</p></section>
 <section><h2>Ms.パックマン（1人用）</h2><img src="figures/mspacman_axis.png" alt="mspacman"><figcaption>左:潜在 z₁-z₂ をスコアで色分け（右＝高スコア＝上手）。右:z₁(推定技量) vs 実スコア。</figcaption><p class="interp"><b>技量ラベル</b>＝スコア（10〜18981）。プレイスタイルだけから <b>初心者vs熟練 AUROC 0.796</b>・z₁とスコア相関 0.484。（教師つき軸は後付け方向 0.739 を上回る）</p></section><section><h2>Space Invaders（1人用）</h2><img src="figures/spaceinvaders_axis.png" alt="spaceinvaders"><figcaption>左:潜在 z₁-z₂ をスコアで色分け（右＝高スコア＝上手）。右:z₁(推定技量) vs 実スコア。</figcaption><p class="interp"><b>技量ラベル</b>＝スコア（5〜1960）。プレイスタイルだけから <b>初心者vs熟練 AUROC 0.661</b>・z₁とスコア相関 0.37。</p></section><section><h2>チェス（対戦）</h2><img src="figures/chess_axis.png" alt="chess"><figcaption>左:潜在 z₁-z₂ をレートで色分け（右＝高レート＝上手）。右:z₁(推定技量) vs 実レート。</figcaption><p class="interp"><b>技量ラベル</b>＝レート（856〜2240）。プレイスタイルだけから <b>初心者vs熟練 AUROC 0.615</b>・z₁とレート相関 0.173。</p></section><section><h2>囲碁（対戦）</h2><img src="figures/go_axis.png" alt="go"><figcaption>左:潜在 z₁-z₂ をランクで色分け（右＝高ランク＝上手）。右:z₁(推定技量) vs 実ランク。</figcaption><p class="interp"><b>技量ラベル</b>＝ランク（-4〜40）。プレイスタイルだけから <b>初心者vs熟練 AUROC 0.546</b>・z₁とランク相関 0.118。</p></section><section><h2>Overcooked（協力）</h2><img src="figures/overcooked_axis.png" alt="overcooked"><figcaption>左:潜在 z₁-z₂ を層内順位%で色分け（右＝高層内順位%＝上手）。右:z₁(推定技量) vs 実層内順位%。</figcaption><p class="interp"><b>技量ラベル</b>＝層内順位%（0〜100）。プレイスタイルだけから <b>初心者vs熟練 AUROC 0.629</b>・z₁と層内順位%相関 0.214。</p></section><section><h2>Hanabi(2人)（協力）</h2><img src="figures/hanabi_axis.png" alt="hanabi"><figcaption>左:潜在 z₁-z₂ を花火点で色分け（右＝高花火点＝上手）。右:z₁(推定技量) vs 実花火点。</figcaption><p class="interp"><b>技量ラベル</b>＝花火点（13〜25）。プレイスタイルだけから <b>初心者vs熟練 AUROC 0.826</b>・z₁と花火点相関 0.546。</p></section>
 <section><h2>正直な限界・次の一歩</h2><p class="interp">
 ・<b>3種の関わり方すべて</b>を同じ機構で通した：1人用（スコア）・対戦（レート/ランク）・協力（チーム点）。技量ラベルの正体はゲームごとに違うが、軸の作り方は共通。<br>

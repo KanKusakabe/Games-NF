@@ -415,6 +415,15 @@ img{width:100%;border:1px solid #e5e5e5;border-radius:10px}
 figcaption{color:#555;margin-top:.3rem;font-size:.92rem}
 .interp{background:#faf8f5;border-left:3px solid #d97757;padding:.6rem .9rem;border-radius:0 8px 8px 0}
 code{background:#f0eee9;padding:.1rem .3rem;border-radius:4px}
+.p2grid{display:grid;grid-template-columns:repeat(2,1fr);gap:1rem;margin:1rem 0}
+@media(max-width:640px){.p2grid{grid-template-columns:1fr}}
+.p2card{border:1px solid #e5e5e5;border-radius:12px;padding:.9rem 1rem;background:#fff}
+.p2h{font-weight:700;font-size:1.05rem;margin-bottom:.2rem}
+.bar{position:relative;height:8px;background:#eee;border-radius:5px;margin:.35rem 0 .1rem}
+.bar>span{position:absolute;top:-3px;width:3px;height:14px;background:#c2410c;border-radius:2px}
+.tips{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.35rem}
+.tip{font-size:.9rem;padding:.2rem .55rem;border-radius:999px;background:#f0eee9;border:1px solid #e5e5e5}
+.tip.up{background:#eaf5ec;border-color:#bfe0c6}.tip.dn{background:#fdeee6;border-color:#f3cbb2}
 """
 
 
@@ -465,12 +474,39 @@ def _cross_section(cg):
 </section>"""
 
 
-def build_page(results, cg=None):
+def _phase2_section(cards):
+    """HTML for Phase 2: score a play on the axis + one-rung-up, data-grounded advice."""
+    if not cards:
+        return ""
+    def one(c):
+        tips = "".join(
+            f'<span class="tip {"up" if t["arrow"] == "▲" else "dn"}">{t["arrow"]} {t["name"]}を{t["verb"]}</span>'
+            for t in c["tips"]) or '<span class="tip">（この特徴では上位と差が小さい）</span>'
+        return (f'<div class="p2card"><div class="p2h">{c["name"]} <span class="sub">（{c["mode"]}）</span></div>'
+                f'<div class="sub">採点：技量軸 z₁ = <b>{c["ex_z1"]}</b> パーセンタイル'
+                f'（実技量 {c["ex_pct"]}%tile・{c["label"]} {c["ex_skill"]}）</div>'
+                f'<div class="bar"><span style="left:{c["ex_z1"]}%"></span></div>'
+                f'<div class="sub" style="margin-top:.55rem">一歩上（実技量トップ層 平均 {c["label"]} {c["top_skill"]}）に近づくには：</div>'
+                f'<div class="tips">{tips}</div></div>')
+    cards_html = "".join(one(c) for c in cards)
+    return f"""
+<section><h2>Phase 2：技量軸で「採点」と「一歩上の助言」</h2>
+<p>学習した技量軸を実用に。各ゲームであるプレイヤーを<b>採点</b>（z₁パーセンタイル）し、<b>実際に上手い人（実技量で上位）</b>の
+プレイスタイルとの差から、<b>動かすべきクセ</b>を具体化する。生成や外挿はせず<b>100%実データ由来</b>——お手本は本当に強い実プレイヤー。
+助言の向きは<b>上位1/3と下位1/3のスタイル差</b>から決めるので個別の外れ値に振られない。実プレイ環境は作らないオフライン機能。</p>
+<div class="p2grid">{cards_html}</div>
+<p class="interp">Hanabi は<b>▼捨て札比</b>（捨てるより情報を渡す）、Overcooked は<b>▲INTERACT・▼静止</b>（活発に動く）、
+囲碁は<b>▲3線・盤を広く</b>、チェスは<b>▲キャスリング</b>——いずれも定石的な上達方向と一致。
+採点 z₁ が実技量とズレる例（Space Invaders・囲碁）は、正直に<b>軸が弱いゲーム</b>を映している。</p></section>"""
+
+
+def build_page(results, cg=None, p2=None):
     rows = "".join(
         f"<tr><td>{r['name']}</td><td>{r['mode']}</td><td>{r['n']:,}</td>"
         f"<td>{r['label']} {r['smin']}–{r['smax']}</td><td><b>{r['auc']}</b></td><td>{r['corr']}</td></tr>"
         for r in results)
     cross = _cross_section(cg)
+    phase2 = _phase2_section(p2)
     secs = "".join(
         f'<section><h2>{r["name"]}（{r["mode"]}）</h2>'
         f'<img src="figures/{r["key"]}_axis.png" alt="{r["key"]}">'
@@ -506,6 +542,7 @@ def build_page(results, cg=None):
 {rows}</table>
 <p class="sub">AUROC 0.5=勘・1.0=完璧。プレイ<b>スタイルだけ</b>から巧さをどれだけ読めるか。</p>
 {cross}
+{phase2}
 {secs}
 <section><h2>正直な限界・次の一歩</h2><p class="interp">
 ・<b>3種の関わり方すべて</b>を同じ機構で通した：1人用（スコア）・対戦（レート/ランク）・協力（チーム点）。技量ラベルの正体はゲームごとに違うが、軸の作り方は共通。<br>
@@ -524,7 +561,11 @@ def build_page(results, cg=None):
     if cg:
         with open(os.path.join(DOCS, "crossgame.json"), "w") as f:
             _json.dump(cg, f, ensure_ascii=False, indent=1)
-    print("wrote combined page with", [r["key"] for r in results], "cross=" + str(bool(cg)))
+    if p2:
+        with open(os.path.join(DOCS, "phase2.json"), "w") as f:
+            _json.dump(p2, f, ensure_ascii=False, indent=1)
+    print("wrote combined page with", [r["key"] for r in results],
+          "cross=" + str(bool(cg)), "phase2=" + str(bool(p2)))
 
 
 def _add(results, key, name, mode, loader, label, min_n=100):
@@ -545,7 +586,9 @@ def main():
             results = _json.load(f)
         cgp = os.path.join(DOCS, "crossgame.json")
         cg = _json.load(open(cgp)) if os.path.exists(cgp) else None
-        build_page(results, cg)
+        p2p = os.path.join(DOCS, "phase2.json")
+        p2 = _json.load(open(p2p)) if os.path.exists(p2p) else None
+        build_page(results, cg, p2)
         return
     results = []
     for i, (key, name, mode, acts) in enumerate(ATARI):  # 1p, score = skill
@@ -561,7 +604,13 @@ def main():
         cg = crossgame.run_all(results)  # ONE flow, game-ID context, shared z1 (A: 4 feats, B: encoders)
     except Exception as e:
         print("crossgame skipped:", repr(e))
-    build_page(results, cg)
+    p2 = None
+    try:
+        import phase2
+        p2 = phase2.run(results)  # score a play + one-rung-up advice from real better players
+    except Exception as e:
+        print("phase2 skipped:", repr(e))
+    build_page(results, cg, p2)
 
 
 if __name__ == "__main__":

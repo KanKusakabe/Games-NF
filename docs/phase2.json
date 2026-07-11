@@ -1,0 +1,164 @@
+[
+ {
+  "key": "mspacman",
+  "name": "Ms.パックマン",
+  "mode": "1人用",
+  "label": "スコア",
+  "n": 382,
+  "ex_pct": 40,
+  "ex_z1": 50,
+  "ex_skill": 1590.0,
+  "top_pct": 83,
+  "top_skill": 5873.7,
+  "top_n": 126,
+  "tips": [
+   {
+    "arrow": "▲",
+    "name": "動きの多様性",
+    "verb": "増やす",
+    "mag": 1.22
+   },
+   {
+    "arrow": "▼",
+    "name": "静止(NOOP)率",
+    "verb": "減らす",
+    "mag": 1.11
+   }
+  ]
+ },
+ {
+  "key": "spaceinvaders",
+  "name": "Space Invaders",
+  "mode": "1人用",
+  "label": "スコア",
+  "n": 423,
+  "ex_pct": 40,
+  "ex_z1": 77,
+  "ex_skill": 515.0,
+  "top_pct": 83,
+  "top_skill": 990.4,
+  "top_n": 140,
+  "tips": [
+   {
+    "arrow": "▲",
+    "name": "動きの多様性",
+    "verb": "増やす",
+    "mag": 0.96
+   },
+   {
+    "arrow": "▼",
+    "name": "静止(NOOP)率",
+    "verb": "減らす",
+    "mag": 0.63
+   },
+   {
+    "arrow": "▲",
+    "name": "方向切替率",
+    "verb": "増やす",
+    "mag": 0.43
+   }
+  ]
+ },
+ {
+  "key": "chess",
+  "name": "チェス",
+  "mode": "対戦",
+  "label": "レート",
+  "n": 7712,
+  "ex_pct": 40,
+  "ex_z1": 53,
+  "ex_skill": 1537.0,
+  "top_pct": 83,
+  "top_skill": 1832.4,
+  "top_n": 2545,
+  "tips": [
+   {
+    "arrow": "▲",
+    "name": "キャスリング",
+    "verb": "増やす",
+    "mag": 0.5
+   }
+  ]
+ },
+ {
+  "key": "go",
+  "name": "囲碁",
+  "mode": "対戦",
+  "label": "ランク",
+  "n": 672,
+  "ex_pct": 40,
+  "ex_z1": 12,
+  "ex_skill": 19.3,
+  "top_pct": 83,
+  "top_skill": 28.1,
+  "top_n": 222,
+  "tips": [
+   {
+    "arrow": "▲",
+    "name": "3線率",
+    "verb": "増やす",
+    "mag": 0.31
+   },
+   {
+    "arrow": "▲",
+    "name": "盤の広がり",
+    "verb": "増やす",
+    "mag": 0.21
+   }
+  ]
+ },
+ {
+  "key": "overcooked",
+  "name": "Overcooked",
+  "mode": "協力",
+  "label": "層内順位%",
+  "n": 172,
+  "ex_pct": 40,
+  "ex_z1": 32,
+  "ex_skill": 40.0,
+  "top_pct": 83,
+  "top_skill": 84.4,
+  "top_n": 57,
+  "tips": [
+   {
+    "arrow": "▼",
+    "name": "静止率",
+    "verb": "減らす",
+    "mag": 1.24
+   },
+   {
+    "arrow": "▲",
+    "name": "INTERACT率",
+    "verb": "増やす",
+    "mag": 1.21
+   },
+   {
+    "arrow": "▲",
+    "name": "動きの多様性",
+    "verb": "増やす",
+    "mag": 1.18
+   }
+  ]
+ },
+ {
+  "key": "hanabi",
+  "name": "Hanabi(2人)",
+  "mode": "協力",
+  "label": "花火点",
+  "n": 1858,
+  "ex_pct": 40,
+  "ex_z1": 16,
+  "ex_skill": 23.0,
+  "top_pct": 83,
+  "top_skill": 25.0,
+  "top_n": 613,
+  "tips": [
+   {
+    "arrow": "▼",
+    "name": "捨て札比",
+    "verb": "減らす",
+    "mag": 1.32
+   }
+  ]
+ }
+]
