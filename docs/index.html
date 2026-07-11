@@ -1,0 +1,44 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Games-NF</title>
+<style>
+:root{--acc:#c2410c;--acc2:#d97757;--ink:#222;--mut:#666;--bg:#faf8f5}
+*{box-sizing:border-box}
+body{font:16px/1.75 -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;color:var(--ink);
+ max-width:960px;margin:0 auto;padding:2rem 1rem}
+a{color:var(--acc)}
+h1{line-height:1.35;margin:.2rem 0}
+.sub{color:var(--mut)}
+.crumb{font-size:.9rem;margin-bottom:1rem}
+.kpis{display:flex;gap:.8rem;flex-wrap:wrap;margin:1.2rem 0}
+.kpi{background:#f5f3f0;border-radius:12px;padding:.7rem 1rem;min-width:120px}
+.kpi b{display:block;font-size:1.5rem;color:var(--acc)}
+.kpi span{font-size:.8rem;color:var(--mut)}
+section{margin:2rem 0}
+h2{border-left:5px solid var(--acc2);padding-left:.6rem;font-size:1.25rem}
+figure{margin:1.4rem 0}
+img{width:100%;border:1px solid #e5e5e5;border-radius:10px;background:#fff}
+figcaption{color:#555;margin-top:.4rem;font-size:.92rem}
+.interp{background:var(--bg);border-left:3px solid var(--acc2);padding:.8rem 1rem;border-radius:0 8px 8px 0}
+code{background:#f0eee9;padding:.1rem .35rem;border-radius:4px}
+table{border-collapse:collapse;width:100%;margin:1rem 0}
+th,td{border:1px solid #e5e5e5;padding:.4rem .6rem;text-align:left;font-size:.94rem}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1rem;margin-top:1.5rem}
+.card{border:1px solid #e5e5e5;border-radius:12px;padding:1rem;text-decoration:none;color:inherit;display:block}
+.card:hover{border-color:var(--acc2)}
+.card h3{margin:.1rem 0 .3rem}
+.badge{display:inline-block;font-size:.72rem;padding:.1rem .5rem;border-radius:999px;background:#eee;color:#555}
+.badge.done{background:#e7f3e7;color:#256b25}
+.badge.hold{background:#fdeecd;color:#8a5a00}
+</style></head><body>
+<h1>Games-NF</h1>
+<p class="sub">ゲームの実人間プレイを条件付き Normalizing Flow で学習し、潜在に「右＝上手・左＝下手」の技量軸を通す試み。1人用/協力/対戦の複数ゲームを同じ基底で扱う（Phase 0＝基底の決定）。</p>
+<p>条件付き <b>Normalizing Flow</b> で「その人の"いつも"の密度」を学習し、
+<code>SURPRISE = -log p</code> や生成・潜在で使う。各カードが1つのモデル（バリエーション）。
+ページを開くと <b>データ / 学習方法 / 結果 / 図の見方 / 解釈と使い道</b> が分かる。</p>
+<section><h2>元データの中身（何が入っているか）</h2><div class="interp"><b>Phase 0 の生データ</b>＝Atari Grand Challenge の Ms.パックマン実人間プレイ（<code>atari_v1/trajectories/mspacman/*.txt</code>）。各ファイル＝1エピソードで、列は <code>frame, reward, score, terminal, action</code>。<b>最終スコア＝技量ラベル</b>。<br><b>1レコードの実例</b>：あるエピソードは 2,270フレーム・最終スコア1,970、行動は NOOP/上/右/左/下…の系列。全体でスコアは数十〜1万超まで分布＝<b>実在の初心者〜上級</b>。</div></section>
+<h2>モデル一覧（クリックで各ページへ）</h2>
+<div class="cards"><a class="card" href="phase0.html"><span class="badge done">完了</span><h3>Phase 0：技量軸の基底をMs.パックマンで決める</h3><p class="sub">実人間プレイ（Grand Challenge）＋最終スコアで、潜在に『右＝上手・左＝下手』の軸を通す。基底はガウス＋直線技量軸。</p></a></div>
+<section><h2>考察：どんなフォーマットのデータがあれば何ができるか</h2><p>ここで決めた基底（ガウス＋直線技量軸）を、次からこう広げる：</p><ul><li><b>＋状態条件つき特徴</b>（画面/位置）→ 技量軸が鋭くなる（今はスタイルだけでソフト）。</li><li><b>＋ゲームIDを条件にした単一フロー</b>→ Space Invaders/Overcooked/Hanabi/チェス/囲碁を同じ技量軸で横断（方向の意味も共通化）。</li><li><b>＋技量ノブで生成</b>→ 初心者風〜熟練風のプレイを作り、環境で実際にプレイ。</li><li><b>＋z₂ 以降</b>→ 多次元技量（エイム/回避/管理…）。</li></ul></section>
+<p class="sub" style="margin-top:2rem">自動生成。NF×生活データ探索シリーズ。</p>
+</body></html>

@@ -1,0 +1,47 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Phase 0：技量軸の基底をMs.パックマンで決める · Games-NF</title>
+<style>
+:root{--acc:#c2410c;--acc2:#d97757;--ink:#222;--mut:#666;--bg:#faf8f5}
+*{box-sizing:border-box}
+body{font:16px/1.75 -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;color:var(--ink);
+ max-width:960px;margin:0 auto;padding:2rem 1rem}
+a{color:var(--acc)}
+h1{line-height:1.35;margin:.2rem 0}
+.sub{color:var(--mut)}
+.crumb{font-size:.9rem;margin-bottom:1rem}
+.kpis{display:flex;gap:.8rem;flex-wrap:wrap;margin:1.2rem 0}
+.kpi{background:#f5f3f0;border-radius:12px;padding:.7rem 1rem;min-width:120px}
+.kpi b{display:block;font-size:1.5rem;color:var(--acc)}
+.kpi span{font-size:.8rem;color:var(--mut)}
+section{margin:2rem 0}
+h2{border-left:5px solid var(--acc2);padding-left:.6rem;font-size:1.25rem}
+figure{margin:1.4rem 0}
+img{width:100%;border:1px solid #e5e5e5;border-radius:10px;background:#fff}
+figcaption{color:#555;margin-top:.4rem;font-size:.92rem}
+.interp{background:var(--bg);border-left:3px solid var(--acc2);padding:.8rem 1rem;border-radius:0 8px 8px 0}
+code{background:#f0eee9;padding:.1rem .35rem;border-radius:4px}
+table{border-collapse:collapse;width:100%;margin:1rem 0}
+th,td{border:1px solid #e5e5e5;padding:.4rem .6rem;text-align:left;font-size:.94rem}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1rem;margin-top:1.5rem}
+.card{border:1px solid #e5e5e5;border-radius:12px;padding:1rem;text-decoration:none;color:inherit;display:block}
+.card:hover{border-color:var(--acc2)}
+.card h3{margin:.1rem 0 .3rem}
+.badge{display:inline-block;font-size:.72rem;padding:.1rem .5rem;border-radius:999px;background:#eee;color:#555}
+.badge.done{background:#e7f3e7;color:#256b25}
+.badge.hold{background:#fdeecd;color:#8a5a00}
+</style></head><body>
+<div class="crumb"><a href="index.html">&larr; Games-NF トップ</a></div>
+<h1>Phase 0：技量軸の基底をMs.パックマンで決める</h1>
+<p class="sub">実人間プレイ（Grand Challenge）＋最終スコアで、潜在に『右＝上手・左＝下手』の軸を通す。基底はガウス＋直線技量軸。</p>
+<div class="kpis"><div class="kpi"><b>382</b><span>エピソード数</span></div><div class="kpi"><b>10–18981</b><span>スコア範囲</span></div><div class="kpi"><b>0.802</b><span>AUROC(教師つき)</span></div><div class="kpi"><b>0.697</b><span>AUROC(後付け)</span></div><div class="kpi"><b>S（教師つき技量軸）</b><span>採用</span></div></div>
+<section><h2>1. このデータは何か</h2><b>Atari Grand Challenge</b> の <b>Ms.パックマン 実人間プレイ</b>（382エピソード）。1エピソード＝行動列＋最終スコア。<b>技量ラベル＝最終スコア</b>（10〜18981と実際に大きくばらつく＝本物の初心者〜上級）。各エピソードから<b>プレイスタイル特徴</b>（行動方向の分布9＋切替率＋エントロピー）を作る（生存時間やスコアは特徴に入れない＝リークなし）。</section>
+<section><h2>2. 何を・どう学習したか</h2>条件付き Neural Spline Flow で <code>p(スタイル特徴)</code> を学習し、潜在 z を得る。<b>技量は必ず直線軸</b>（単調・順序尺度なので円は不適）。2方式を比較：<br><b>U 教師なし＋後付け</b>：普通に学習→潜在でスコアを線形回帰＝技量方向を後から取り出す（再学習なし）。<br><b>S 教師つき技量軸</b>：学習時に <code>z₁≈標準化スコア</code> の項を足し、<b>z₁ そのものを技量軸</b>にする（右＝上手／左＝下手）。</section>
+<section><h2>3. 結果</h2>技量の読み取り（初心者vs熟練 AUROC）は <b>教師つき 0.80 / 後付け 0.70</b>、z₁と実スコアの相関 r=0.50。密度 held-out NLL は U 0.02 / S -0.41。→ <b>採用＝S（教師つき技量軸）</b>。全ゲームでこの基底（ガウス＋直線技量軸）を固定する。
+<figure><img src="figures/skill_axis.png" alt="左:潜在 z₁-z₂ を実スコアで色分け（右ほど高スコア＝上手）。右:z₁ vs 実スコア。"><figcaption>左:潜在 z₁-z₂ を実スコアで色分け（右ほど高スコア＝上手）。右:z₁ vs 実スコア。</figcaption></figure>
+<figure><img src="figures/bakeoff.png" alt="左:技量読み取りAUROC（U後付け vs S教師つき）。右:held-out NLL。"><figcaption>左:技量読み取りAUROC（U後付け vs S教師つき）。右:held-out NLL。</figcaption></figure></section>
+<section><h2>4. 図の見方</h2><b>左上図</b>：点=1エピソード。色=最終スコア。<b>右に行くほど高スコア（上手）</b>に並んでいれば技量軸が通っている。<br><b>右上図</b>：z₁（推定技量）と実スコアが右上がり＝プレイ内容だけから巧さを読めている。<br><b>下段</b>：AUROCが高い方式を採用、NLLが極端に悪化していないかも確認。</section>
+<section><h2>5. 解釈と意味・使い道</h2><div class="interp"><b>示すこと</b>：実人間プレイの<b>スタイルだけ</b>から技量が（ある程度）読め、潜在に『右＝上手・左＝下手』の軸を構成できる。<b>基底＝ガウス＋直線技量軸</b>が妥当（円は移動方向用で、技量には使わない）。<br><b>なぜNFか</b>：密度として学ぶので、技量軸＝生成の技量ノブ（初心者風〜熟練風を作る）にそのまま繋がる。<br><b>正直な限界</b>：粗い行動スタイルだけなので技量軸は<b>ソフト</b>（AUROCは中程度の想定）。状態条件つき特徴（次フェーズ）で鋭くなる。多次元技量は z₂ 以降で。</div></section>
+<p class="sub" style="margin-top:2rem">条件付き Normalizing Flow（zuko NSF）で自動生成。
+NF×生活データ探索シリーズの一部。</p>
+</body></html>
