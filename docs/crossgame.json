@@ -1,0 +1,69 @@
+{
+ "overall_auc": 0.635,
+ "overall_corr": 0.213,
+ "per_game": [
+  {
+   "key": "mspacman",
+   "name": "Ms.パックマン",
+   "mode": "1人用",
+   "n": 382,
+   "auc_uni": 0.808,
+   "corr_uni": 0.539,
+   "auc_sep": 0.796
+  },
+  {
+   "key": "spaceinvaders",
+   "name": "Space Invaders",
+   "mode": "1人用",
+   "n": 423,
+   "auc_uni": 0.815,
+   "corr_uni": 0.436,
+   "auc_sep": 0.661
+  },
+  {
+   "key": "chess",
+   "name": "チェス",
+   "mode": "対戦",
+   "n": 7712,
+   "auc_uni": 0.545,
+   "corr_uni": 0.068,
+   "auc_sep": 0.615
+  },
+  {
+   "key": "go",
+   "name": "囲碁",
+   "mode": "対戦",
+   "n": 672,
+   "auc_uni": 0.581,
+   "corr_uni": 0.092,
+   "auc_sep": 0.546
+  },
+  {
+   "key": "overcooked",
+   "name": "Overcooked",
+   "mode": "協力",
+   "n": 172,
+   "auc_uni": 0.878,
+   "corr_uni": 0.652,
+   "auc_sep": 0.629
+  },
+  {
+   "key": "hanabi",
+   "name": "Hanabi(2人)",
+   "mode": "協力",
+   "n": 1858,
+   "auc_uni": 0.802,
+   "corr_uni": 0.473,
+   "auc_sep": 0.826
+  }
+ ],
+ "n_games": 6,
+ "n_total": 11219,
+ "lam": 2.0,
+ "features": [
+  "行動エントロピー",
+  "最頻行動シェア",
+  "切替率",
+  "前後半のブレ(drift)"
+ ]
+}

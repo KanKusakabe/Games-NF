@@ -79,28 +79,33 @@ def _atari_episode(path, acts):
     switch = float((a[1:] != a[:-1]).mean())
     pos = hist[hist > 0]
     ent = float(-(pos * np.log(pos)).sum() / np.log(len(acts)))
-    return np.concatenate([hist, [switch, ent]]), final
+    return np.concatenate([hist, [switch, ent]]), final, _profile(hist, a)
 
 
-def load_atari(key, acts):
-    X, S = [], []
+def load_atari(key, acts, return_prof=False):
+    X, S, P = [], [], []
     for f in sorted(glob.glob(os.path.join(AGC, key, "*.txt"))):
         r = _atari_episode(f, acts)
         if r:
-            X.append(r[0]); S.append(r[1])
-    return np.array(X, np.float32), np.array(S, np.float32)
+            X.append(r[0]); S.append(r[1]); P.append(r[2])
+    X, S, P = np.array(X, np.float32), np.array(S, np.float32), np.array(P, np.float32)
+    return (X, S, P) if return_prof else (X, S)
 
 
-def load_chess(max_games=4000):
+def load_chess(max_games=4000, return_prof=False):
     """Per (game, colour): play-STYLE features + that player's rating (skill)."""
     cache = f"{SCRATCH}/games/chess/feats.npz"
     if os.path.exists(cache):
-        d = np.load(cache); return d["X"], d["S"]
+        d = np.load(cache)
+        if not return_prof:
+            return d["X"], d["S"]
+        if "P" in d:
+            return d["X"], d["S"], d["P"]  # else fall through and recompute to add P
     if not os.path.exists(CHESS_ZST):
-        return None, None
+        return (None, None, None) if return_prof else (None, None)
     import chess, chess.pgn, zstandard
     PIECES = [chess.PAWN, chess.KNIGHT, chess.BISHOP, chess.ROOK, chess.QUEEN, chess.KING]
-    X, S = [], []
+    X, S, P = [], [], []
     dec = zstandard.ZstdDecompressor()
     with open(CHESS_ZST, "rb") as fh:
         t = io.TextIOWrapper(dec.stream_reader(fh), encoding="utf-8", errors="ignore")
@@ -115,12 +120,13 @@ def load_chess(max_games=4000):
                 if not elo.isdigit():
                     continue
                 board = game.board()
-                pc = [0] * 6; cap = chk = castle = promo = center = nm = 0
+                pc = [0] * 6; cap = chk = castle = promo = center = nm = 0; pcseq = []
                 for mv in game.mainline_moves():
                     if board.turn == color:
                         pt = board.piece_at(mv.from_square)
                         if pt:
                             pc[PIECES.index(pt.piece_type)] += 1
+                            pcseq.append(PIECES.index(pt.piece_type))
                         if board.is_capture(mv):
                             cap += 1
                         if board.gives_check(mv):
@@ -137,10 +143,10 @@ def load_chess(max_games=4000):
                     continue
                 feat = [x / nm for x in pc] + [cap / nm, chk / nm, float(castle),
                                                promo / nm, center / nm, min(nm, 60) / 60.0]
-                X.append(feat); S.append(int(elo))
-    X, S = np.array(X, np.float32), np.array(S, np.float32)
-    np.savez(cache, X=X, S=S)
-    return X, S
+                X.append(feat); S.append(int(elo)); P.append(_profile(pc, pcseq))
+    X, S, P = np.array(X, np.float32), np.array(S, np.float32), np.array(P, np.float32)
+    np.savez(cache, X=X, S=S, P=P)
+    return (X, S, P) if return_prof else (X, S)
 
 
 def _entropy(p):
@@ -149,7 +155,29 @@ def _entropy(p):
     return float(-(p * np.log(p)).sum() / np.log(len(p))) if len(p) > 1 else 0.0
 
 
-def load_go():
+def _profile(dist, seq):
+    """Game-AGNOSTIC style descriptor [entropy, top1-share, switch-rate, drift].
+
+    Same construction for every game (how varied / concentrated / switchy the play
+    is, and how much the action mix DRIFTS between the first and second half), so it
+    can feed ONE cross-game flow whose z1 has a shared meaning. Deliberately NO
+    length: episode length = survival time in Atari, which would leak the score.
+    """
+    dist = np.asarray(dist, float); s = dist.sum()
+    d = dist / s if s > 0 else dist
+    seq = np.asarray(seq)
+    switch = float((seq[1:] != seq[:-1]).mean()) if seq.size > 1 else 0.0
+    if seq.size >= 4:  # non-stationarity: TV distance between 1st- and 2nd-half mix
+        h = seq.size // 2; cats = np.unique(seq)
+        p1 = np.array([(seq[:h] == c).mean() for c in cats])
+        p2 = np.array([(seq[h:] == c).mean() for c in cats])
+        drift = float(0.5 * np.abs(p1 - p2).sum())
+    else:
+        drift = 0.0
+    return [_entropy(d), float(d.max()) if d.size else 0.0, switch, drift]
+
+
+def load_go(return_prof=False):
     """Go (19x19, versus). Per (game, colour): board-geometry play STYLE + OGS rank.
 
     Real human OGS games (za3k dump). Features = where the player puts stones
@@ -158,11 +186,15 @@ def load_go():
     """
     cache = f"{SCRATCH}/games/go/feats.npz"
     if os.path.exists(cache):
-        d = np.load(cache); return d["X"], d["S"]
+        d = np.load(cache)
+        if not return_prof:
+            return d["X"], d["S"]
+        if "P" in d:
+            return d["X"], d["S"], d["P"]
     if not os.path.exists(GO_JSON):
-        return None, None
+        return (None, None, None) if return_prof else (None, None)
     import gzip
-    X, S = [], []
+    X, S, P = [], [], []
     with gzip.open(GO_JSON, "rt", errors="ignore") as f:
         for line in f:
             line = line.strip()
@@ -190,22 +222,25 @@ def load_go():
                     continue
                 xs = np.array(xs); ys = np.array(ys)
                 line = np.minimum(np.minimum(xs, 18 - xs), np.minimum(ys, 18 - ys)) + 1
-                feat = [float(np.mean(line <= 2)), float(np.mean(line == 3)),
-                        float(np.mean(line == 4)), float(np.mean(line >= 5)),
+                bucket = np.clip(line, 1, 5) - 1  # line-region sequence: 0=edge..4=centre+
+                dist = np.array([np.mean(line <= 2), np.mean(line == 3),
+                                 np.mean(line == 4), np.mean(line >= 5)], float)
+                feat = [dist[0], dist[1], dist[2], dist[3],
                         float(line.mean()) / 8.0,
                         float(np.sqrt(xs.var() + ys.var())) / 9.0,
                         float(line[:6].mean()) / 8.0,
                         min(len(mv), 300) / 300.0, npass / max(len(mv), 1)]
                 X.append(feat); S.append(float(rank))
-    X, S = np.array(X, np.float32), np.array(S, np.float32)
-    np.savez(cache, X=X, S=S)
-    return X, S
+                P.append(_profile(dist, bucket))
+    X, S, P = np.array(X, np.float32), np.array(S, np.float32), np.array(P, np.float32)
+    np.savez(cache, X=X, S=S, P=P)
+    return (X, S, P) if return_prof else (X, S)
 
 
 _OC_DIR = {"[0, 0]": 0, "[0, -1]": 1, "[0, 1]": 2, "[-1, 0]": 3, "[1, 0]": 4}  # stay,U,D,L,R
 
 
-def load_overcooked():
+def load_overcooked(return_prof=False):
     """Overcooked (co-op). Per (trial, player): action-mix STYLE + team score.
 
     Real human-human trials (HumanCompatibleAI). Features = that player's action
@@ -215,15 +250,19 @@ def load_overcooked():
     """
     cache = f"{SCRATCH}/games/overcooked/feats.npz"
     if os.path.exists(cache):
-        d = np.load(cache); return d["X"], d["S"]
+        d = np.load(cache)
+        if not return_prof:
+            return d["X"], d["S"]
+        if "P" in d:
+            return d["X"], d["S"], d["P"]
     if not os.path.exists(OVERCOOKED_PKL):
-        return None, None
+        return (None, None, None) if return_prof else (None, None)
     import json as _json
     import pandas as pd
     df = pd.read_pickle(OVERCOOKED_PKL).sort_values(["trial_id", "cur_gameloop"])
     fin = df.groupby("trial_id")["score_total"].max()
     lay = df.groupby("trial_id")["layout_name"].first()
-    X, raw, lays = [], [], []
+    X, raw, lays, PROF = [], [], [], []
     for tid, sub in df.groupby("trial_id"):
         seqs = [[], []]
         for ja in sub["joint_action"]:
@@ -245,16 +284,18 @@ def load_overcooked():
             switch = float((s[1:] != s[:-1]).mean())
             X.append(list(hist) + [switch, _entropy(hist)])
             raw.append(float(fin[tid])); lays.append(str(lay[tid]))
+            PROF.append(_profile(hist, s))
     X = np.array(X, np.float32); raw = np.array(raw, np.float32); lays = np.array(lays)
-    P = np.zeros(len(raw), np.float32)  # within-layout percentile skill
+    PROF = np.array(PROF, np.float32)
+    pct = np.zeros(len(raw), np.float32)  # within-layout percentile skill
     for L in np.unique(lays):
         m = lays == L; v = raw[m]
-        P[m] = 100.0 * v.argsort().argsort() / max(len(v) - 1, 1)
-    np.savez(cache, X=X, S=P)
-    return X, P
+        pct[m] = 100.0 * v.argsort().argsort() / max(len(v) - 1, 1)
+    np.savez(cache, X=X, S=pct, P=PROF)
+    return (X, pct, PROF) if return_prof else (X, pct)
 
 
-def load_hanabi():
+def load_hanabi(return_prof=False):
     """Hanabi 2-player (co-op). Per game: NON-PLAY action-style + fireworks score.
 
     Real human games from Hanab Live (AH2AC2). Actions 0-4 discard / 5-9 play /
@@ -272,14 +313,17 @@ def load_hanabi():
         d = load_file(path)
         A.append(d["actions"]); SC.append(d["scores"]); NA.append(d["num_actions"])
     if not A:
-        return None, None
+        return (None, None, None) if return_prof else (None, None)
     A = np.concatenate(A); SC = np.concatenate(SC); NA = np.concatenate(NA)
-    X, S = [], []
+    X, S, P = [], [], []
     for i in range(len(A)):
         na = int(NA[i])
         flat = A[i, :na].reshape(-1)
         flat = flat[flat != 20]
-        disc = int(np.sum((flat >= 0) & (flat <= 4)))
+        typ = np.where(flat <= 4, 0, np.where(flat <= 9, 1, np.where(flat <= 14, 2, 3)))
+        keep = typ != 1  # non-play type sequence: 0 discard / 2 colour-hint / 3 rank-hint
+        seq = typ[keep]
+        disc = int(np.sum(flat <= 4))
         colh = int(np.sum((flat >= 10) & (flat <= 14)))
         rnkh = int(np.sum((flat >= 15) & (flat <= 19)))
         nonplay = disc + colh + rnkh
@@ -288,12 +332,14 @@ def load_hanabi():
         ds, cs, rs = disc / nonplay, colh / nonplay, rnkh / nonplay
         X.append([ds, cs, rs, colh / (colh + rnkh + 1e-9), _entropy([ds, cs, rs])])
         S.append(float(SC[i]))
-    return np.array(X, np.float32), np.array(S, np.float32)
+        P.append(_profile([ds, cs, rs], seq))
+    X, S, P = np.array(X, np.float32), np.array(S, np.float32), np.array(P, np.float32)
+    return (X, S, P) if return_prof else (X, S)
 
 
 # ---------- skill axis (shared base: Gaussian + supervised linear axis) ----------
-def make_flow(dim):
-    return zuko.flows.NSF(features=dim, context=1, transforms=3, hidden_features=(64, 64))
+def make_flow(dim, context=1):
+    return zuko.flows.NSF(features=dim, context=context, transforms=3, hidden_features=(64, 64))
 
 
 def _train(flow, x, c, shat, supervised, epochs=400, lam=1.0):
@@ -372,11 +418,43 @@ code{background:#f0eee9;padding:.1rem .3rem;border-radius:4px}
 """
 
 
-def build_page(results):
+def _cross_section(cg):
+    """HTML for the cross-game UNIFIED-axis section (one flow, game-ID context)."""
+    if not cg:
+        return ""
+    def cell(p):
+        u, s = p["auc_uni"], p.get("auc_sep")
+        mark = "" if s is None else (" ▲" if u >= s else " ▽")
+        return (f'<tr><td>{p["name"]}</td><td>{p["mode"]}</td>'
+                f'<td>{"—" if s is None else s}</td><td><b>{u}</b>{mark}</td><td>{p["corr_uni"]}</td></tr>')
+    rows = "".join(cell(p) for p in cg["per_game"])
+    feats = "・".join(cg["features"])
+    win = sum(1 for p in cg["per_game"] if p.get("auc_sep") is not None and p["auc_uni"] >= p["auc_sep"])
+    return f"""
+<section><h2>横断：単一フローで技量軸の意味を共通化</h2>
+<p>各ゲーム別々のフローだと、チェスの z₁ と Hanabi の z₁ は別モデルの別座標で、直接は比べられない。そこで
+<b>ゲームIDを条件（context）にした 1 つの条件付きフロー</b>を、<b>全ゲーム共通のスタイル記述子</b>
+<code>{feats}</code>（どのゲームでも同じ計算・同じ意味）に対して学習し、
+技量は<b>ゲーム内で標準化</b>してプールし、<code>z₁ ≈ 自分のゲーム内での相対技量</code>を全ゲームに課した。
+→ z₁ が<b>1 本の共通座標</b>になり、チェスの z₁＝+1 と Hanabi の z₁＝+1 が「どちらも自分のゲームの平均より約1σ上手」という<b>同じ意味</b>になる。</p>
+<img src="figures/crossgame_axis.png" alt="cross-game unified axis">
+<figcaption>左：全 {cg["n_games"]} ゲーム{cg["n_total"]:,}人ぶんを 1 つの潜在へ（色＝ゲーム）。右：共通 z₁ vs ゲーム内で標準化した技量（全体 r={cg["overall_corr"]}）。</figcaption>
+<table><tr><th>ゲーム</th><th>種別</th><th>個別フロー<br>AUROC</th><th>単一フロー（共通軸）<br>AUROC</th><th>z₁×技量</th></tr>
+{rows}
+<tr><td colspan="3" style="text-align:right"><b>共通軸・全体 AUROC</b></td><td><b>{cg["overall_auc"]}</b></td><td>{cg["overall_corr"]}</td></tr></table>
+<p class="interp">たった<b>4 個の汎用スタイル特徴</b>・1 本の共通 z₁ で、全体 AUROC <b>{cg["overall_auc"]}</b>。
+しかも <b>{win}/{cg["n_games"]} ゲーム</b>で個別フローに<b>並ぶ／上回る</b>（プールで統計的に強くなる＋過学習しにくい）。
+チェス・Hanabi は個別を少し下回る＝<b>ゲーム固有の特徴</b>（駒の使い方・ヒント構成）が効く分。
+「巧さは<b>行動の散らし方・切替・打ち筋のブレ</b>に共通して滲む」＝技量軸が<b>ゲームを跨いで意味を持つ</b>ことを示す。<b>▲</b>＝共通軸が個別以上。</p>
+</section>"""
+
+
+def build_page(results, cg=None):
     rows = "".join(
         f"<tr><td>{r['name']}</td><td>{r['mode']}</td><td>{r['n']:,}</td>"
         f"<td>{r['label']} {r['smin']}–{r['smax']}</td><td><b>{r['auc']}</b></td><td>{r['corr']}</td></tr>"
         for r in results)
+    cross = _cross_section(cg)
     secs = "".join(
         f'<section><h2>{r["name"]}（{r["mode"]}）</h2>'
         f'<img src="figures/{r["key"]}_axis.png" alt="{r["key"]}">'
@@ -387,6 +465,8 @@ def build_page(results):
         for r in results)
     best = max(r["auc"] for r in results)
     n_modes = len({r["mode"] for r in results})
+    cross_kpi = (f'<div class="kpi"><b>{cg["overall_auc"]}</b>共通軸・全体 AUROC'
+                 f'<br><span class="sub">単一フロー×{cg["n_games"]}ゲーム</span></div>') if cg else ""
     html = f"""<!doctype html><html lang="ja"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Games-NF — プレイから技量軸を学ぶ</title><style>{PAGE_CSS}</style></head><body>
@@ -397,6 +477,7 @@ def build_page(results):
  <div class="kpi"><b>{len(results)}</b>ゲーム</div>
  <div class="kpi"><b>{n_modes}</b>種の関わり方<br><span class="sub">1人用・対戦・協力</span></div>
  <div class="kpi"><b>{best}</b>最良 初心者vs熟練 AUROC</div>
+ {cross_kpi}
  <div class="kpi"><b>ガウス＋直線軸</b>共通の基底</div>
 </div>
 <p class="lead"><b>やり方（全ゲーム共通）</b>：各プレイから<b>スタイル特徴</b>（行動/駒の使い方の分布・切替率など、
@@ -408,21 +489,26 @@ def build_page(results):
 <table><tr><th>ゲーム</th><th>種別</th><th>件数</th><th>技量ラベル範囲</th><th>初心者vs熟練 AUROC</th><th>z₁×技量相関</th></tr>
 {rows}</table>
 <p class="sub">AUROC 0.5=勘・1.0=完璧。プレイ<b>スタイルだけ</b>から巧さをどれだけ読めるか。</p>
+{cross}
 {secs}
 <section><h2>正直な限界・次の一歩</h2><p class="interp">
 ・<b>3種の関わり方すべて</b>を同じ機構で通した：1人用（スコア）・対戦（レート/ランク）・協力（チーム点）。技量ラベルの正体はゲームごとに違うが、軸の作り方は共通。<br>
 ・技量軸は<b>ソフト</b>で、ゲームにより効き方が大きく違う。<b>Hanabi(0.83)とMs.パックマン(0.80)が最も鋭く</b>、<b>囲碁(0.55)が最も弱い</b>（盤の粗い配石＝線の位置分布だけでは段級位を読みにくい。定石・形・状態条件つき特徴が要る）。同じ協力でも Hanabi は鋭く、Overcooked は中程度（実人間trialが n=172 と小さく荒い）。<br>
 ・<b>スコア漏れに注意した</b>：Hanabi は「成功プレイ数＝点数」なので play率をそのまま特徴にすると点数がそのまま漏れる。あえて play/捨て札の量を捨て、プレイ<b>以外</b>の行動（色ヒント/数字ヒントの構成比）だけで軸を作った。それでも AUROC0.83 ＝<b>ヒント主体の協調スタイル</b>そのものが強さと結びつく、という中身のある結果。Overcooked はレイアウトごとに点の桁が違うので<b>レイアウト内の順位（％）</b>を技量ラベルにした。<br>
-・各ゲームは同じ基底・同じ機構だが<b>別々のフロー</b>。次は<b>ゲームIDを条件にした単一フロー</b>で横断（軸の意味を共通化）。<br>
+・<b>軸の共通化は達成</b>（上の横断セクション）：ゲームIDを条件にした単一フロー＋汎用スタイル特徴で、z₁ が全ゲーム共通の相対技量座標になった。次は<b>ゲームごとの小エンコーダ→共通潜在</b>で、共通化しつつ固有特徴の鋭さも残す（チェス・Hanabiの取りこぼしを回収）。<br>
 ・<b>Phase 2</b>：この技量軸で「ユーザのプレイをスコアリング」「初心者に一歩上のお手本や補助」を出すミニ機能。
 </p></section>
 <p class="sub"><code>python -m gamesnf.games</code> で自動生成。KAN-NF 実験群。</p>
 </body></html>"""
     with open(os.path.join(DOCS, "index.html"), "w") as f:
         f.write(html)
+    import json as _json
     with open(os.path.join(DOCS, "results.json"), "w") as f:  # rebuild page w/o retraining
-        __import__("json").dump(results, f, ensure_ascii=False, indent=1)
-    print("wrote combined page with", [r["key"] for r in results])
+        _json.dump(results, f, ensure_ascii=False, indent=1)
+    if cg:
+        with open(os.path.join(DOCS, "crossgame.json"), "w") as f:
+            _json.dump(cg, f, ensure_ascii=False, indent=1)
+    print("wrote combined page with", [r["key"] for r in results], "cross=" + str(bool(cg)))
 
 
 def _add(results, key, name, mode, loader, label, min_n=100):
@@ -437,9 +523,13 @@ def _add(results, key, name, mode, loader, label, min_n=100):
 
 
 def main():
-    if len(sys.argv) > 1 and sys.argv[1] == "page":  # rebuild HTML from cached results, no retrain
+    import json as _json
+    if len(sys.argv) > 1 and sys.argv[1] == "page":  # rebuild HTML from cache, no retrain
         with open(os.path.join(DOCS, "results.json")) as f:
-            build_page(__import__("json").load(f))
+            results = _json.load(f)
+        cgp = os.path.join(DOCS, "crossgame.json")
+        cg = _json.load(open(cgp)) if os.path.exists(cgp) else None
+        build_page(results, cg)
         return
     results = []
     for i, (key, name, mode, acts) in enumerate(ATARI):  # 1p, score = skill
@@ -449,7 +539,13 @@ def main():
     _add(results, "go", "囲碁", "対戦", load_go, "ランク", min_n=200)             # versus
     _add(results, "overcooked", "Overcooked", "協力", load_overcooked, "層内順位%")  # co-op
     _add(results, "hanabi", "Hanabi(2人)", "協力", load_hanabi, "花火点")          # co-op
-    build_page(results)
+    cg = None
+    try:
+        import crossgame
+        cg = crossgame.run(results)  # ONE flow, game-ID context, shared z1
+    except Exception as e:
+        print("crossgame skipped:", repr(e))
+    build_page(results, cg)
 
 
 if __name__ == "__main__":
