@@ -19,26 +19,25 @@ code{background:#f0eee9;padding:.1rem .3rem;border-radius:4px}
 <h1>Games-NF — ゲームの実プレイから「技量軸」を学ぶ</h1>
 <p class="sub">条件付き Normalizing Flow ＋ スコア/レートで、潜在に <b>右＝上手・左＝下手</b> の軸を通す。KAN-NF 実験群の一部。</p>
 <div class="kpis">
- <div class="kpi"><b>2</b>ゲーム</div>
- <div class="kpi"><b>0.827</b>最良 初心者vs熟練 AUROC</div>
+ <div class="kpi"><b>3</b>ゲーム</div>
+ <div class="kpi"><b>0.796</b>最良 初心者vs熟練 AUROC</div>
  <div class="kpi"><b>ガウス＋直線軸</b>共通の基底</div>
 </div>
-<p class="lead"><b>やり方（全ゲーム共通）</b>：各プレイから<b>スタイル特徴</b>（行動方向の分布＋切替率＋エントロピー、
-生存/スコアはリークさせない）を作り、<b>基底＝ガウス＋直線の技量軸</b>の条件付きNSFを学習。
-学習時に <code>z₁ ≈ 標準化スコア</code> を課し、<b>z₁ そのものを技量軸</b>にする（Phase 0でMs.パックマンにて
-教師つき軸 AUROC 0.80 &gt; 後付け 0.70 と確認して基底を決定）。技量は単調・順序尺度なので<b>直線</b>で、
-円環は移動方向用に温存。</p>
+<p class="lead"><b>やり方（全ゲーム共通）</b>：各プレイから<b>スタイル特徴</b>（行動/駒の使い方の分布・切替率など、
+勝敗/スコアはリークさせない）を作り、<b>基底＝ガウス＋直線の技量軸</b>の条件付きNSFを学習。
+学習時に <code>z₁ ≈ 標準化した技量ラベル</code> を課し、<b>z₁ そのものを技量軸</b>にする（Phase 0でMs.パックマンにて
+教師つき軸 AUROC 0.80 &gt; 後付け 0.70 と確認）。技量は単調・順序尺度なので<b>直線</b>、円環は移動方向用に温存。</p>
 
 <h2>結果一覧</h2>
-<table><tr><th>ゲーム</th><th>種別</th><th>エピソード</th><th>スコア範囲</th><th>初心者vs熟練 AUROC</th><th>z₁×スコア相関</th></tr>
-<tr><td>Ms.パックマン</td><td>1人用</td><td>382</td><td>10–18981</td><td><b>0.827</b></td><td>0.498</td></tr><tr><td>Space Invaders</td><td>1人用</td><td>423</td><td>5–1960</td><td><b>0.555</b></td><td>0.244</td></tr></table>
+<table><tr><th>ゲーム</th><th>種別</th><th>件数</th><th>技量ラベル範囲</th><th>初心者vs熟練 AUROC</th><th>z₁×技量相関</th></tr>
+<tr><td>Ms.パックマン</td><td>1人用</td><td>382</td><td>スコア 10–18981</td><td><b>0.796</b></td><td>0.484</td></tr><tr><td>Space Invaders</td><td>1人用</td><td>423</td><td>スコア 5–1960</td><td><b>0.661</b></td><td>0.37</td></tr><tr><td>チェス</td><td>対戦</td><td>7,712</td><td>レート 856–2240</td><td><b>0.615</b></td><td>0.173</td></tr></table>
 <p class="sub">AUROC 0.5=勘・1.0=完璧。プレイ<b>スタイルだけ</b>から巧さをどれだけ読めるか。</p>
-<section><h2>Ms.パックマン（1人用）</h2><img src="figures/mspacman_axis.png" alt="mspacman"><figcaption>左:潜在 z₁-z₂ を最終スコアで色分け（右＝高スコア＝上手）。右:z₁(推定技量) vs 実スコア。</figcaption><p class="interp"><b>技量ラベル</b>＝エピソード最終スコア（10〜18981）。プレイスタイルだけから <b>初心者vs熟練 AUROC 0.827</b>・z₁と実スコア相関 0.498。（教師つき軸は後付け方向 0.7 を上回る）</p></section><section><h2>Space Invaders（1人用）</h2><img src="figures/spaceinvaders_axis.png" alt="spaceinvaders"><figcaption>左:潜在 z₁-z₂ を最終スコアで色分け（右＝高スコア＝上手）。右:z₁(推定技量) vs 実スコア。</figcaption><p class="interp"><b>技量ラベル</b>＝エピソード最終スコア（5〜1960）。プレイスタイルだけから <b>初心者vs熟練 AUROC 0.555</b>・z₁と実スコア相関 0.244。</p></section>
+<section><h2>Ms.パックマン（1人用）</h2><img src="figures/mspacman_axis.png" alt="mspacman"><figcaption>左:潜在 z₁-z₂ をスコアで色分け（右＝高スコア＝上手）。右:z₁(推定技量) vs 実スコア。</figcaption><p class="interp"><b>技量ラベル</b>＝スコア（10〜18981）。プレイスタイルだけから <b>初心者vs熟練 AUROC 0.796</b>・z₁とスコア相関 0.484。（教師つき軸は後付け方向 0.739 を上回る）</p></section><section><h2>Space Invaders（1人用）</h2><img src="figures/spaceinvaders_axis.png" alt="spaceinvaders"><figcaption>左:潜在 z₁-z₂ をスコアで色分け（右＝高スコア＝上手）。右:z₁(推定技量) vs 実スコア。</figcaption><p class="interp"><b>技量ラベル</b>＝スコア（5〜1960）。プレイスタイルだけから <b>初心者vs熟練 AUROC 0.661</b>・z₁とスコア相関 0.37。</p></section><section><h2>チェス（対戦）</h2><img src="figures/chess_axis.png" alt="chess"><figcaption>左:潜在 z₁-z₂ をレートで色分け（右＝高レート＝上手）。右:z₁(推定技量) vs 実レート。</figcaption><p class="interp"><b>技量ラベル</b>＝レート（856〜2240）。プレイスタイルだけから <b>初心者vs熟練 AUROC 0.615</b>・z₁とレート相関 0.173。</p></section>
 <section><h2>正直な限界・次の一歩</h2><p class="interp">
-・特徴が粗いプレイスタイルのみ＝技量軸は<b>ソフト</b>。<b>状態条件つき特徴</b>（画面/位置）で鋭くなる。<br>
+・特徴が粗いプレイスタイルのみ＝技量軸は<b>ソフト</b>で、ゲームにより効き方が違う（例：Space Invadersは狙い精度が効き弱い）。<b>状態条件つき特徴</b>で鋭くなる。<br>
 ・各ゲームは同じ基底・同じ機構だが<b>別々のフロー</b>。次は<b>ゲームIDを条件にした単一フロー</b>で横断（軸の意味を共通化）。<br>
-・協力(Overcooked/Hanabi)・対戦(チェス/囲碁)を同じ枠で追加予定。<br>
-・<b>Phase 2</b>：この技量軸で「ユーザのプレイをスコアリング」「初心者に一歩上のお手本や補助」を出すミニ機能を作る。
+・協力(Overcooked/Hanabi)は公開データの整備待ち、囲碁も追加予定。<br>
+・<b>Phase 2</b>：この技量軸で「ユーザのプレイをスコアリング」「初心者に一歩上のお手本や補助」を出すミニ機能。
 </p></section>
 <p class="sub"><code>python -m gamesnf.games</code> で自動生成。KAN-NF 実験群。</p>
 </body></html>
