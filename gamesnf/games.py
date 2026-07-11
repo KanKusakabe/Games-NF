@@ -26,9 +26,29 @@ plt.rcParams["axes.unicode_minus"] = False
 sys.path.insert(0, os.path.dirname(__file__))
 import metrics
 
-SCRATCH = sorted(glob.glob("/private/tmp/claude-501/*rosbag/*/scratchpad"))[0]
+def _find_scratch():
+    """Pick the scratchpad that actually holds the data.
+
+    Several sessions each create a `.../<uuid>/scratchpad`; a new (empty) one can
+    sort before the one with our `games/` data, so never blindly take sorted[0].
+    Prefer $GAMESNF_DATA, then any scratchpad containing `games/`, else sorted[0].
+    """
+    env = os.environ.get("GAMESNF_DATA")
+    if env and os.path.isdir(env):
+        return env
+    cands = sorted(glob.glob("/private/tmp/claude-501/*rosbag/*/scratchpad"))
+    for d in cands:
+        if os.path.isdir(os.path.join(d, "games")):
+            return d
+    return cands[0] if cands else "."
+
+
+SCRATCH = _find_scratch()
 AGC = f"{SCRATCH}/games/agc/atari_v1/trajectories"
 CHESS_ZST = f"{SCRATCH}/games/chess/l.pgn.zst"
+GO_JSON = f"{SCRATCH}/games/go/sample-1k.json.gz"
+OVERCOOKED_PKL = f"{SCRATCH}/games/overcooked/2019_hh_trials_all.pickle"
+HANABI_DIR = f"{SCRATCH}/games/hanabi"
 DOCS = os.path.join(os.path.dirname(__file__), "..", "docs")
 FIG = os.path.join(DOCS, "figures")
 os.makedirs(FIG, exist_ok=True)
@@ -121,6 +141,154 @@ def load_chess(max_games=4000):
     X, S = np.array(X, np.float32), np.array(S, np.float32)
     np.savez(cache, X=X, S=S)
     return X, S
+
+
+def _entropy(p):
+    """Normalised Shannon entropy of a distribution (0..1)."""
+    p = np.asarray(p, float); p = p[p > 0]
+    return float(-(p * np.log(p)).sum() / np.log(len(p))) if len(p) > 1 else 0.0
+
+
+def load_go():
+    """Go (19x19, versus). Per (game, colour): board-geometry play STYLE + OGS rank.
+
+    Real human OGS games (za3k dump). Features = where the player puts stones
+    (edge / 3rd / 4th / centre line rates, opening line, spread, pass, length) —
+    no winner/outcome leak. Skill = that colour's OGS rank (higher = stronger).
+    """
+    cache = f"{SCRATCH}/games/go/feats.npz"
+    if os.path.exists(cache):
+        d = np.load(cache); return d["X"], d["S"]
+    if not os.path.exists(GO_JSON):
+        return None, None
+    import gzip
+    X, S = [], []
+    with gzip.open(GO_JSON, "rt", errors="ignore") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                g = __import__("json").loads(line)
+            except Exception:
+                continue
+            if g.get("width") != 19 or g.get("height") != 19 or g.get("handicap", 0):
+                continue
+            moves = g.get("moves") or []
+            for start, col in ((0, "black"), (1, "white")):
+                rank = g["players"][col].get("rank")
+                if rank is None:
+                    continue
+                mv = moves[start::2]
+                xs, ys, npass = [], [], 0
+                for m in mv:
+                    x, y = m[0], m[1]
+                    if x is None or y is None or x < 0 or y < 0 or x > 18 or y > 18:
+                        npass += 1; continue
+                    xs.append(x); ys.append(y)
+                if len(xs) < 15:
+                    continue
+                xs = np.array(xs); ys = np.array(ys)
+                line = np.minimum(np.minimum(xs, 18 - xs), np.minimum(ys, 18 - ys)) + 1
+                feat = [float(np.mean(line <= 2)), float(np.mean(line == 3)),
+                        float(np.mean(line == 4)), float(np.mean(line >= 5)),
+                        float(line.mean()) / 8.0,
+                        float(np.sqrt(xs.var() + ys.var())) / 9.0,
+                        float(line[:6].mean()) / 8.0,
+                        min(len(mv), 300) / 300.0, npass / max(len(mv), 1)]
+                X.append(feat); S.append(float(rank))
+    X, S = np.array(X, np.float32), np.array(S, np.float32)
+    np.savez(cache, X=X, S=S)
+    return X, S
+
+
+_OC_DIR = {"[0, 0]": 0, "[0, -1]": 1, "[0, 1]": 2, "[-1, 0]": 3, "[1, 0]": 4}  # stay,U,D,L,R
+
+
+def load_overcooked():
+    """Overcooked (co-op). Per (trial, player): action-mix STYLE + team score.
+
+    Real human-human trials (HumanCompatibleAI). Features = that player's action
+    distribution (stay/up/down/left/right/interact), switch rate, entropy — no
+    score leak. Skill = team score, ranked WITHIN layout (percentile) so layouts
+    of different difficulty are comparable.
+    """
+    cache = f"{SCRATCH}/games/overcooked/feats.npz"
+    if os.path.exists(cache):
+        d = np.load(cache); return d["X"], d["S"]
+    if not os.path.exists(OVERCOOKED_PKL):
+        return None, None
+    import json as _json
+    import pandas as pd
+    df = pd.read_pickle(OVERCOOKED_PKL).sort_values(["trial_id", "cur_gameloop"])
+    fin = df.groupby("trial_id")["score_total"].max()
+    lay = df.groupby("trial_id")["layout_name"].first()
+    X, raw, lays = [], [], []
+    for tid, sub in df.groupby("trial_id"):
+        seqs = [[], []]
+        for ja in sub["joint_action"]:
+            try:
+                pa = _json.loads(ja.replace("'", '"'))
+            except Exception:
+                try:
+                    pa = eval(ja)
+                except Exception:
+                    continue
+            for p in (0, 1):
+                a = pa[p]
+                seqs[p].append(5 if str(a).upper() == "INTERACT" else _OC_DIR.get(str(a), 0))
+        for p in (0, 1):
+            s = np.array(seqs[p])
+            if len(s) < 50:
+                continue
+            hist = np.array([(s == k).mean() for k in range(6)], float)
+            switch = float((s[1:] != s[:-1]).mean())
+            X.append(list(hist) + [switch, _entropy(hist)])
+            raw.append(float(fin[tid])); lays.append(str(lay[tid]))
+    X = np.array(X, np.float32); raw = np.array(raw, np.float32); lays = np.array(lays)
+    P = np.zeros(len(raw), np.float32)  # within-layout percentile skill
+    for L in np.unique(lays):
+        m = lays == L; v = raw[m]
+        P[m] = 100.0 * v.argsort().argsort() / max(len(v) - 1, 1)
+    np.savez(cache, X=X, S=P)
+    return X, P
+
+
+def load_hanabi():
+    """Hanabi 2-player (co-op). Per game: NON-PLAY action-style + fireworks score.
+
+    Real human games from Hanab Live (AH2AC2). Actions 0-4 discard / 5-9 play /
+    10-14 colour-hint / 15-19 rank-hint (20 = no-op). We deliberately DROP the
+    play/discard *counts* (score = successful plays, so raw play-rate leaks the
+    label) and use the composition AMONG non-play actions + colour-vs-rank hint
+    preference. Skill = final fireworks score (13-25).
+    """
+    from safetensors.numpy import load_file
+    A, SC, NA = [], [], []
+    for f in ("2_player_games_train_1k.safetensors", "2_player_games_val.safetensors"):
+        path = os.path.join(HANABI_DIR, f)
+        if not os.path.exists(path):
+            continue
+        d = load_file(path)
+        A.append(d["actions"]); SC.append(d["scores"]); NA.append(d["num_actions"])
+    if not A:
+        return None, None
+    A = np.concatenate(A); SC = np.concatenate(SC); NA = np.concatenate(NA)
+    X, S = [], []
+    for i in range(len(A)):
+        na = int(NA[i])
+        flat = A[i, :na].reshape(-1)
+        flat = flat[flat != 20]
+        disc = int(np.sum((flat >= 0) & (flat <= 4)))
+        colh = int(np.sum((flat >= 10) & (flat <= 14)))
+        rnkh = int(np.sum((flat >= 15) & (flat <= 19)))
+        nonplay = disc + colh + rnkh
+        if nonplay < 5:
+            continue
+        ds, cs, rs = disc / nonplay, colh / nonplay, rnkh / nonplay
+        X.append([ds, cs, rs, colh / (colh + rnkh + 1e-9), _entropy([ds, cs, rs])])
+        S.append(float(SC[i]))
+    return np.array(X, np.float32), np.array(S, np.float32)
 
 
 # ---------- skill axis (shared base: Gaussian + supervised linear axis) ----------
@@ -218,6 +386,7 @@ def build_page(results):
         f'{"（教師つき軸は後付け方向 "+str(r["auc_posthoc"])+" を上回る）" if "auc_posthoc" in r else ""}</p></section>'
         for r in results)
     best = max(r["auc"] for r in results)
+    n_modes = len({r["mode"] for r in results})
     html = f"""<!doctype html><html lang="ja"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Games-NF — プレイから技量軸を学ぶ</title><style>{PAGE_CSS}</style></head><body>
@@ -226,6 +395,7 @@ def build_page(results):
 <p class="sub">条件付き Normalizing Flow ＋ スコア/レートで、潜在に <b>右＝上手・左＝下手</b> の軸を通す。KAN-NF 実験群の一部。</p>
 <div class="kpis">
  <div class="kpi"><b>{len(results)}</b>ゲーム</div>
+ <div class="kpi"><b>{n_modes}</b>種の関わり方<br><span class="sub">1人用・対戦・協力</span></div>
  <div class="kpi"><b>{best}</b>最良 初心者vs熟練 AUROC</div>
  <div class="kpi"><b>ガウス＋直線軸</b>共通の基底</div>
 </div>
@@ -240,29 +410,45 @@ def build_page(results):
 <p class="sub">AUROC 0.5=勘・1.0=完璧。プレイ<b>スタイルだけ</b>から巧さをどれだけ読めるか。</p>
 {secs}
 <section><h2>正直な限界・次の一歩</h2><p class="interp">
-・特徴が粗いプレイスタイルのみ＝技量軸は<b>ソフト</b>で、ゲームにより効き方が違う（例：Space Invadersは狙い精度が効き弱い）。<b>状態条件つき特徴</b>で鋭くなる。<br>
+・<b>3種の関わり方すべて</b>を同じ機構で通した：1人用（スコア）・対戦（レート/ランク）・協力（チーム点）。技量ラベルの正体はゲームごとに違うが、軸の作り方は共通。<br>
+・技量軸は<b>ソフト</b>で、ゲームにより効き方が大きく違う。<b>Hanabi(0.83)とMs.パックマン(0.80)が最も鋭く</b>、<b>囲碁(0.55)が最も弱い</b>（盤の粗い配石＝線の位置分布だけでは段級位を読みにくい。定石・形・状態条件つき特徴が要る）。同じ協力でも Hanabi は鋭く、Overcooked は中程度（実人間trialが n=172 と小さく荒い）。<br>
+・<b>スコア漏れに注意した</b>：Hanabi は「成功プレイ数＝点数」なので play率をそのまま特徴にすると点数がそのまま漏れる。あえて play/捨て札の量を捨て、プレイ<b>以外</b>の行動（色ヒント/数字ヒントの構成比）だけで軸を作った。それでも AUROC0.83 ＝<b>ヒント主体の協調スタイル</b>そのものが強さと結びつく、という中身のある結果。Overcooked はレイアウトごとに点の桁が違うので<b>レイアウト内の順位（％）</b>を技量ラベルにした。<br>
 ・各ゲームは同じ基底・同じ機構だが<b>別々のフロー</b>。次は<b>ゲームIDを条件にした単一フロー</b>で横断（軸の意味を共通化）。<br>
-・協力(Overcooked/Hanabi)は公開データの整備待ち、囲碁も追加予定。<br>
 ・<b>Phase 2</b>：この技量軸で「ユーザのプレイをスコアリング」「初心者に一歩上のお手本や補助」を出すミニ機能。
 </p></section>
 <p class="sub"><code>python -m gamesnf.games</code> で自動生成。KAN-NF 実験群。</p>
 </body></html>"""
     with open(os.path.join(DOCS, "index.html"), "w") as f:
         f.write(html)
+    with open(os.path.join(DOCS, "results.json"), "w") as f:  # rebuild page w/o retraining
+        __import__("json").dump(results, f, ensure_ascii=False, indent=1)
     print("wrote combined page with", [r["key"] for r in results])
 
 
+def _add(results, key, name, mode, loader, label, min_n=100):
+    """Run one game's loader + skill axis, appending to results (skip on failure)."""
+    try:
+        X, S = loader()
+        if X is None or len(X) < min_n:
+            print(f"{name} skipped: n={0 if X is None else len(X)} (<{min_n})"); return
+        results.append(skill_axis(key, name, mode, X, S, label=label))
+    except Exception as e:
+        print(f"{name} skipped:", repr(e))
+
+
 def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "page":  # rebuild HTML from cached results, no retrain
+        with open(os.path.join(DOCS, "results.json")) as f:
+            build_page(__import__("json").load(f))
+        return
     results = []
-    for i, (key, name, mode, acts) in enumerate(ATARI):
+    for i, (key, name, mode, acts) in enumerate(ATARI):  # 1p, score = skill
         X, S = load_atari(key, acts)
         results.append(skill_axis(key, name, mode, X, S, label="スコア", also_posthoc=(i == 0)))
-    try:
-        X, S = load_chess()
-        if X is not None and len(X) > 200:
-            results.append(skill_axis("chess", "チェス", "対戦", X, S, label="レート"))
-    except Exception as e:
-        print("chess skipped:", repr(e))
+    _add(results, "chess", "チェス", "対戦", load_chess, "レート", min_n=200)      # versus
+    _add(results, "go", "囲碁", "対戦", load_go, "ランク", min_n=200)             # versus
+    _add(results, "overcooked", "Overcooked", "協力", load_overcooked, "層内順位%")  # co-op
+    _add(results, "hanabi", "Hanabi(2人)", "協力", load_hanabi, "花火点")          # co-op
     build_page(results)
 
 

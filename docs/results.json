@@ -1,0 +1,69 @@
+[
+ {
+  "key": "mspacman",
+  "name": "Ms.パックマン",
+  "mode": "1人用",
+  "n": 382,
+  "smin": 10,
+  "smax": 18981,
+  "auc": 0.796,
+  "corr": 0.484,
+  "label": "スコア",
+  "auc_posthoc": 0.739
+ },
+ {
+  "key": "spaceinvaders",
+  "name": "Space Invaders",
+  "mode": "1人用",
+  "n": 423,
+  "smin": 5,
+  "smax": 1960,
+  "auc": 0.661,
+  "corr": 0.37,
+  "label": "スコア"
+ },
+ {
+  "key": "chess",
+  "name": "チェス",
+  "mode": "対戦",
+  "n": 7712,
+  "smin": 856,
+  "smax": 2240,
+  "auc": 0.615,
+  "corr": 0.173,
+  "label": "レート"
+ },
+ {
+  "key": "go",
+  "name": "囲碁",
+  "mode": "対戦",
+  "n": 672,
+  "smin": -4,
+  "smax": 40,
+  "auc": 0.546,
+  "corr": 0.118,
+  "label": "ランク"
+ },
+ {
+  "key": "overcooked",
+  "name": "Overcooked",
+  "mode": "協力",
+  "n": 172,
+  "smin": 0,
+  "smax": 100,
+  "auc": 0.629,
+  "corr": 0.214,
+  "label": "層内順位%"
+ },
+ {
+  "key": "hanabi",
+  "name": "Hanabi(2人)",
+  "mode": "協力",
+  "n": 1858,
+  "smin": 13,
+  "smax": 25,
+  "auc": 0.826,
+  "corr": 0.546,
+  "label": "花火点"
+ }
+]
