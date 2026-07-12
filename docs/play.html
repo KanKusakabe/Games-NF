@@ -316,7 +316,9 @@ const PLAY={
 };
 
 let MG=null;
-function miniHTML(key){const c=PLAY[key];return `<div class="mini">
+function miniHTML(key){const c=PLAY[key];
+  if(c.turnBased)return turnHTML(key);
+  return `<div class="mini">
   <h2 style="border-left-color:#c2410c;font-size:1.1rem">実際に遊んで採点（${c.title}）</h2>
   <p class="sub">${c.help} 約30秒プレイすると<b>あなたの動き方から学習データと同じ特徴</b>を作り、実プレイヤーに照らして採点する。<b>プレイ中は右側に「今の打ち方」のライブ・コーチ</b>が出る（直近5秒のスタイルを強い層と比較）。</p>
   <div class="row">
@@ -347,6 +349,7 @@ function miniHTML(key){const c=PLAY[key];return `<div class="mini">
   </div></div>`;}
 
 function initMini(key){
+  if(PLAY[key].turnBased){initTurn(key);return;}
   const cv=document.getElementById('mg'); if(!cv)return;
   const cfg=PLAY[key], N=cfg.N, CELL=cv.width/N;
   MG={cv,ctx:cv.getContext('2d'),N,CELL,run:false,key,cfg,g:{score:0}};
@@ -446,6 +449,181 @@ function endMini(deadMsg){
   const note=document.getElementById('mgnote');note.style.display='';
   note.innerHTML=`この採点は<b>実際の${d.name}実プレイヤー${d.n}人</b>に照らしたもの。${cfg.note}`;
 }
+
+/* ================= ターン制ゲーム（Hanabi）================= */
+function turnHTML(key){const c=PLAY[key];return `<div class="mini">
+  <h2 style="border-left-color:#c2410c;font-size:1.1rem">実際に遊んで採点（${c.title}）</h2>
+  <p class="sub">${c.help}</p>
+  <div class="row">
+    <div>
+      <div id="hboard" style="border:1px solid #e5e5e5;border-radius:10px;padding:.7rem .8rem;background:#faf8f5;min-height:300px"></div>
+      <div style="margin-top:.5rem"><button class="btn" id="mgb">新しいゲーム</button></div>
+      <label style="display:flex;align-items:center;gap:.4rem;margin-top:.45rem;font-size:.88rem">
+        <input type="checkbox" id="mgroute" checked>
+        <span><b style="color:#2a7fb8">— 参考手</b>を表示（<span class="sub">${c.routeLabel}。<b>参考ヒューリスティックでモデル由来ではない</b>——技量軸は手を学習していない）</span></span>
+      </label>
+    </div>
+    <div>
+      <div id="mglive" style="display:none">
+        <div class="sub">ライブ・コーチ</div>
+        <div><span class="score" id="mglz" style="font-size:1.5rem">–</span><span class="sub"> パーセンタイル（暫定・ここまでの手から）</span></div>
+        <div class="gauge"><i id="mglf"></i><span id="mglm"></span></div>
+        <div class="tips" id="mgltips"></div>
+        <div class="sub" style="font-size:.82rem;margin-top:.3rem"><b>今すべきこと</b>（ここまでの非play行動の構成を強い層と比較、tercile方向・データ由来）。<br>左の<b style="color:#2a7fb8">参考手</b>は別物の<b>参考ヒューリスティック</b>。</div>
+      </div>
+      <div id="mgresult" style="display:none">
+        <div class="sub">結果の採点：</div>
+        <div><span class="score" id="mgz">–</span><span class="sub"> パーセンタイル</span></div>
+        <div class="gauge"><i id="mgf"></i><span id="mgm"></span></div>
+        <div class="tips" id="mgtips"></div>
+        <div class="nbr" id="mgnbr"></div>
+      </div>
+      <div class="note" id="mgnote" style="display:none"></div>
+    </div>
+  </div></div>`;}
+
+function initTurn(key){
+  const cfg=PLAY[key];
+  MG={key,cfg,g:null,routeOn:true,turn:true};
+  const rt=document.getElementById('mgroute'); MG.routeOn=rt.checked;
+  rt.onchange=()=>{MG.routeOn=rt.checked; if(MG.g)renderTurn();};
+  document.getElementById('mgb').onclick=()=>startTurn();
+  startTurn();
+}
+function startTurn(){
+  MG.g=MG.cfg.setup();
+  document.getElementById('mgb').textContent='新しいゲーム';
+  document.getElementById('mgresult').style.display='none';
+  document.getElementById('mgnote').style.display='none';
+  document.getElementById('mglive').style.display='';
+  renderTurn();
+}
+function renderTurn(){
+  const cfg=MG.cfg,g=MG.g;
+  const sug = (MG.routeOn && !g.over) ? cfg.best(g,0) : null;
+  document.getElementById('hboard').innerHTML = cfg.board(g) +
+    (sug?`<div style="margin-top:.4rem;color:#2a7fb8;font-size:.86rem">参考手：<b>${sug.desc}</b></div>`:'') +
+    (g.over?'':cfg.controls(g,sug));
+  coachTurn();
+}
+function coachTurn(){
+  const d=state.data[MG.key], f=MG.cfg.feat(MG.g);
+  if(!f){document.getElementById('mglz').textContent='–';document.getElementById('mgltips').innerHTML='<span class="tip">手が増えると採点が出ます</span>';return;}
+  const nb=knn(stdz(f,d),d);
+  const z1=nb.reduce((s,p)=>s+p.z1p,0)/nb.length;
+  document.getElementById('mglz').textContent=Math.round(z1);
+  document.getElementById('mglf').style.width=z1+'%'; document.getElementById('mglm').style.left=z1+'%';
+  const tips=advise(stdz(f,d),d);
+  document.getElementById('mgltips').innerHTML = tips.length
+    ? tips.map(t=>`<span class="tip ${t.up?'up':'dn'}">${t.up?'▲':'▼'} ${t.name}を${t.up?'増やす':'減らす'}</span>`).join('')
+    : '<span class="tip up">いい調子！ 強い層に近い打ち回し</span>';
+}
+function finishTurn(){
+  const d=state.data[MG.key], cfg=MG.cfg, g=MG.g;
+  document.getElementById('mglive').style.display='none';
+  const f=cfg.feat(g);
+  if(!f){document.getElementById('mgnote').style.display='';document.getElementById('mgnote').textContent='手が少なすぎて採点できません。もう一度。';return;}
+  document.getElementById('mgresult').style.display='';
+  const nb=knn(stdz(f,d),d);
+  const z1=nb.reduce((s,p)=>s+p.z1p,0)/nb.length, sk=nb.reduce((s,p)=>s+p.skill,0)/nb.length;
+  document.getElementById('mgz').textContent=Math.round(z1);
+  document.getElementById('mgf').style.width=z1+'%';document.getElementById('mgm').style.left=z1+'%';
+  const tips=advise(stdz(f,d),d);
+  document.getElementById('mgtips').innerHTML=tips.map(t=>`<span class="tip ${t.up?'up':'dn'}">${t.up?'▲':'▼'} ${t.name}を${t.up?'増やす':'減らす'}</span>`).join('')||'<span class="tip">上位層と近い打ち回し</span>';
+  document.getElementById('mgnbr').innerHTML=`近い実プレイヤー ${nb.length}人：${d.label} <b>${Math.round(sk*10)/10}</b>（近傍平均）／あなたのチーム花火 ${g.score}点`;
+  const note=document.getElementById('mgnote');note.style.display='';
+  note.innerHTML=`この採点は<b>実際の${d.name}実プレイヤー${d.n}人</b>に照らしたもの。${cfg.note}`;
+}
+// generic user-action entry: apply, let the AI reply, re-render
+function hact(t,arg){
+  const g=MG.g; if(g.over)return;
+  MG.cfg.apply(g,0,{t,i:arg,val:arg});
+  MG.cfg.after(g);
+  if(!g.over){ MG.cfg.apply(g,1,MG.cfg.best(g,1)); MG.cfg.after(g); }
+  renderTurn();
+  if(g.over)finishTurn();
+}
+
+const HANABI_COL=['赤','青','緑','黄','白'], HANABI_CSS=['#d9534f','#4a90d9','#5cb85c','#e0a800','#888'];
+PLAY.hanabi={
+  turnBased:true, title:'Hanabi 2人（協力）', label:'花火点',
+  help:'協力して5色の花火を1→5の順に上げる。自分の手札は見えず（相手の手札は見える）、'+
+       '<b>出す/捨てる/色ヒント/数字ヒント</b>を選ぶ。捨て/ヒントの<b>使い分け</b>が採点対象。'+
+       'ヒントは情報トークン消費、失敗3回で終了。<b>参考手は omniscient な簡易botの推奨</b>で、相手botの強さが採点に影響する点は正直に注記。',
+  routeLabel:'omniscient な簡易botが薦める手',
+  note:'捨てすぎ（情報を渡さない）だと下位、ヒント主体の協調だと上位に寄る。<b>相手はAI</b>なので実人間ペアの分布とは差が出る点に注意。',
+  feat(g){const np=g.disc+g.colh+g.rnkh; if(np<5)return null;
+    const ds=g.disc/np,cs=g.colh/np,rs=g.rnkh/np, pref=g.colh/(g.colh+g.rnkh+1e-9);
+    const p=[ds,cs,rs].filter(x=>x>0);
+    const ent=p.length>1? -p.reduce((s,q)=>s+q*Math.log(q),0)/Math.log(p.length):0;
+    return [ds,cs,rs,pref,ent];},
+  setup(){
+    const deck=[]; for(let c=0;c<5;c++)for(const r of [1,1,1,2,2,3,3,4,4,5])deck.push({c,r});
+    for(let i=deck.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[deck[i],deck[j]]=[deck[j],deck[i]];}
+    const hands=[[],[]]; for(let p=0;p<2;p++)for(let k=0;k<5;k++){const c=deck.pop();hands[p].push({c:c.c,r:c.r,hc:false,hr:false});}
+    return {deck,hands,fw:[0,0,0,0,0],info:8,fuse:3,disc:0,colh:0,rnkh:0,discard:[],score:0,over:false,final:-1,log:'ゲーム開始。'};
+  },
+  _draw(g,p){const c=g.deck.pop(); if(c){g.hands[p].push({c:c.c,r:c.r,hc:false,hr:false});} if(g.deck.length===0&&g.final<0)g.final=2;},
+  apply(g,p,m){
+    if(!m)return; const hand=g.hands[p];
+    if(m.t==='play'){const card=hand.splice(m.i,1)[0]; if(!card)return;
+      if(card.r===g.fw[card.c]+1){g.fw[card.c]=card.r; if(card.r===5&&g.info<8)g.info++; g.log=`${p?'相手':'あなた'}: ${HANABI_COL[card.c]}${card.r} を出して成功！`;}
+      else{g.fuse--; g.discard.push(card); g.log=`${p?'相手':'あなた'}: ${HANABI_COL[card.c]}${card.r} を出して失敗（爆発）。`;}
+      this._draw(g,p);}
+    else if(m.t==='discard'){const card=hand.splice(m.i,1)[0]; if(!card)return;
+      g.info=Math.min(8,g.info+1); g.discard.push(card); g.disc++; g.log=`${p?'相手':'あなた'}: ${HANABI_COL[card.c]}${card.r} を捨てた（情報+1）。`; this._draw(g,p);}
+    else if(m.t==='hintC'){g.info--; g.colh++; const opp=g.hands[1-p]; opp.forEach(c=>{if(c.c===m.val)c.hc=true;}); g.log=`${p?'相手':'あなた'}: ${HANABI_COL[m.val]}色のヒント。`;}
+    else if(m.t==='hintR'){g.info--; g.rnkh++; const opp=g.hands[1-p]; opp.forEach(c=>{if(c.r===m.val)c.hr=true;}); g.log=`${p?'相手':'あなた'}: 数字${m.val}のヒント。`;}
+    g.score=g.fw.reduce((a,b)=>a+b,0);
+  },
+  after(g){
+    g.score=g.fw.reduce((a,b)=>a+b,0);
+    if(g.fuse<=0){g.over=true;g.log+=' 失敗3回でゲーム終了。'; return;}
+    if(g.score>=25){g.over=true;g.log+=' 全色コンプリート！'; return;}
+    if(g.final>=0){g.final--; if(g.final<0){g.over=true;g.log+=' 山札切れでゲーム終了。'}}
+  },
+  best(g,p){
+    const hand=g.hands[p], opp=g.hands[1-p];
+    // 1) play an omniscient-playable card (lowest rank)
+    let pl=-1,pr=9; hand.forEach((c,i)=>{if(c.r===g.fw[c.c]+1&&c.r<pr){pr=c.r;pl=i;}});
+    if(pl>=0)return {t:'play',i:pl,desc:`${HANABI_COL[hand[pl].c]}${hand[pl].r} を出す`};
+    // 2) useful hint: reveal a currently-playable card in opp's hand
+    if(g.info>0){const play=opp.find(c=>c.r===g.fw[c.c]+1);
+      if(play)return {t:'hintR',val:play.r,desc:`相手に 数字${play.r} のヒント（出せる札）`};}
+    // 3) discard a dead card (already on the pile) or the oldest
+    if(g.info<8){let di=hand.findIndex(c=>c.r<=g.fw[c.c]); if(di<0)di=0;
+      return {t:'discard',i:di,desc:`${HANABI_COL[hand[di].c]}${hand[di].r} を捨てる`};}
+    // 4) info full, no play: give any hint
+    if(opp.length)return {t:'hintC',val:opp[0].c,desc:`相手に ${HANABI_COL[opp[0].c]}色 のヒント`};
+    return {t:'discard',i:0,desc:'捨てる'};
+  },
+  board(g){
+    const fw=g.fw.map((r,c)=>`<span style="color:${HANABI_CSS[c]};font-weight:700">${HANABI_COL[c]}${r}</span>`).join(' ');
+    const opp=g.hands[1].map(c=>`<span style="display:inline-block;background:${HANABI_CSS[c.c]};color:#fff;border-radius:5px;padding:.05rem .4rem;margin:1px;font-weight:700">${c.r}</span>`).join('');
+    const you=g.hands[0].map(c=>{const cc=c.hc?HANABI_CSS[c.c]:'#ccc';const t=(c.hc?HANABI_COL[c.c]:'?')+(c.hr?c.r:'');
+      return `<span style="display:inline-block;border:2px solid ${cc};color:${c.hc?HANABI_CSS[c.c]:'#666'};border-radius:5px;padding:.05rem .4rem;margin:1px;font-weight:700">${t}</span>`;}).join('');
+    return `<div style="line-height:2">花火：${fw}<br>`+
+      `情報🔵 <b>${g.info}</b>／8　失敗💥 <b>${3-g.fuse}</b>/3　山札 <b>${g.deck.length}</b>　得点 <b>${g.score}</b>`+
+      (g.final>=0?`　<span style="color:#c2410c">最終ラウンド</span>`:'')+`</div>`+
+      `<div style="margin-top:.4rem"><span class="sub">相手の手札（見える）：</span><br>${opp}</div>`+
+      `<div style="margin-top:.4rem"><span class="sub">あなたの手札（ヒントのみ）：</span><br>${you}</div>`+
+      `<div class="sub" style="margin-top:.4rem;font-size:.84rem">${g.log}</div>`;
+  },
+  controls(g,sug){
+    const you=g.hands[0], opp=g.hands[1];
+    const hl=(t,i,v)=>sug&&sug.t===t&&((i!==undefined&&i>=0&&sug.i===i)||(v!==undefined&&sug.val===v))?'border-color:#2a7fb8;background:#eaf3fb':'';
+    let h='<div style="margin-top:.5rem;display:flex;flex-wrap:wrap;gap:.3rem">';
+    you.forEach((c,i)=>{h+=`<button class="btn" style="padding:.25rem .5rem;${hl('play',i)}" onclick="hact('play',${i})">出す#${i+1}</button>`;});
+    you.forEach((c,i)=>{const dis=g.info>=8?'disabled':'';h+=`<button class="btn" ${dis} style="padding:.25rem .5rem;${hl('discard',i)}" onclick="hact('discard',${i})">捨#${i+1}</button>`;});
+    h+='</div><div style="margin-top:.3rem;display:flex;flex-wrap:wrap;gap:.3rem">';
+    for(let c=0;c<5;c++){const ok=g.info>0&&opp.some(x=>x.c===c);if(ok)h+=`<button class="btn" style="padding:.2rem .45rem;color:${HANABI_CSS[c]};${hl('hintC',-1,c)}" onclick="hact2('hintC',${c})">${HANABI_COL[c]}</button>`;}
+    for(let r=1;r<=5;r++){const ok=g.info>0&&opp.some(x=>x.r===r);if(ok)h+=`<button class="btn" style="padding:.2rem .45rem;${hl('hintR',-1,r)}" onclick="hact2('hintR',${r})">数${r}</button>`;}
+    h+='</div>';
+    return h;
+  },
+};
+function hact2(t,val){const g=MG.g;if(g.over)return; MG.cfg.apply(g,0,{t,val}); MG.cfg.after(g);
+  if(!g.over){MG.cfg.apply(g,1,MG.cfg.best(g,1));MG.cfg.after(g);} renderTurn(); if(g.over)finishTurn();}
 boot();
 </script>
 </body></html>
