@@ -44,7 +44,7 @@ kbd{background:#f0eee9;border:1px solid #ccc;border-bottom-width:2px;border-radi
 <p class="lead"><b>使い方</b>：ゲームを選び、スライダーで<b>打ち方（プレイスタイル）</b>を動かす。その場で
 ①<b>採点ゲージ</b>（近い実プレイヤーの技量パーセンタイル）②<b>助言チップ</b>（上位層に届いていない項目だけ ▲増やす／▼減らす）
 ③<b>近い実プレイヤー例</b>（実際のスコア/レート等）が更新される。<b>「実プレイヤー読込」</b>でスライダーを実データの1人にセットも可能。
-Ms.パックマンは下部で<b>実際に遊んで採点</b>もできる。</p>
+さらに<b>全6ゲームとも下部で実際に遊んで採点</b>できる（プレイ中は<b>ライブ・コーチ</b>＋<b>参考手/経路ヒント</b>付き）。</p>
 
 <div class="tabs" id="tabs"></div>
 <div id="panel"></div>
@@ -773,6 +773,112 @@ function csel(i){
   g.turnColor=1; cfg.endCheck(g);
   if(!g.over){ const am=chBest(g.st,1); if(am){g.st=chMake(g.st,am);} g.turnColor=0; cfg.endCheck(g); if(!g.over)g.log='あなた（白）の番。'; }
   renderTurn(); if(g.over)finishTurn();
+}
+
+/* ================= 囲碁（19路・着手/捕獲ルール＋簡易bot）================= */
+const GO_N=19;
+function goIdx(x,y){return y*GO_N+x;}
+function goGroup(b,x,y){ // flood-fill same-colour group; return {stones:Set, libs:Set}
+  const col=b[goIdx(x,y)], st=new Set(), libs=new Set(), stk=[[x,y]];
+  st.add(goIdx(x,y));
+  while(stk.length){const[cx,cy]=stk.pop();
+    for(const[dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){const nx=cx+dx,ny=cy+dy;
+      if(nx<0||ny<0||nx>=GO_N||ny>=GO_N)continue; const ni=goIdx(nx,ny),v=b[ni];
+      if(v===0)libs.add(ni); else if(v===col&&!st.has(ni)){st.add(ni);stk.push([nx,ny]);}}}
+  return {stones:st,libs:libs.size};
+}
+function goTryPlace(b,x,y,col,koRef){ // returns {ok, board, captured, koPoint} without mutating b
+  if(b[goIdx(x,y)]!==0)return {ok:false};
+  if(koRef&&koRef.ko===goIdx(x,y))return {ok:false};
+  const nb=b.slice(); nb[goIdx(x,y)]=col; const opp=3-col; let captured=[];
+  for(const[dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){const nx=x+dx,ny=y+dy;
+    if(nx<0||ny<0||nx>=GO_N||ny>=GO_N)continue; if(nb[goIdx(nx,ny)]===opp){
+      const grp=goGroup(nb,nx,ny); if(grp.libs===0)grp.stones.forEach(s=>{nb[s]=0;captured.push(s);});}}
+  const self=goGroup(nb,x,y); if(self.libs===0&&captured.length===0)return {ok:false}; // suicide
+  let ko=-1; if(captured.length===1&&self.stones.size===1&&self.libs===1)ko=captured[0];
+  return {ok:true,board:nb,captured:captured.length,koPoint:ko};
+}
+function goLegalPoints(b,col,koRef){const out=[];for(let y=0;y<GO_N;y++)for(let x=0;x<GO_N;x++){
+  if(b[goIdx(x,y)]!==0)continue; const r=goTryPlace(b,x,y,col,koRef); if(r.ok)out.push({x,y,cap:r.captured,r});} return out;}
+function goBotMove(g){ // heuristic white(2) move
+  const cand=goLegalPoints(g.board,2,g);
+  if(!cand.length)return null;
+  const near=(x,y)=>{for(const[dx,dy] of [[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]){const nx=x+dx,ny=y+dy;if(nx>=0&&ny>=0&&nx<GO_N&&ny<GO_N&&g.board[goIdx(nx,ny)]!==0)return true;}return false;};
+  let best=null,bs=-1e9, seed=g.xs.length*7+3;
+  for(const c of cand){const line=Math.min(Math.min(c.x,18-c.x),Math.min(c.y,18-c.y))+1;
+    let s=c.cap*12 + ((line===3||line===4)?3:line<=2?-1:0) + (near(c.x,c.y)?2:0);
+    // self-atari penalty
+    const self=goGroup(c.r.board,c.x,c.y); if(self.libs===1)s-=5;
+    seed=(seed*1103515245+12345)&0x7fffffff; s+=(seed/0x7fffffff)*1.5;
+    if(s>bs){bs=s;best=c;}}
+  return best;
+}
+PLAY.go={
+  turnBased:true, title:'囲碁（19路・対戦）', label:'ランク',
+  help:'あなたは黒。<b>交点をクリックして石を置く</b>（着手/取りルールあり）。相手は簡易bot。'+
+       'あなたの<b>石の位置（辺/3線/4線/中央）・広がり・序盤の打点</b>から採点する。'+
+       '<b>15手以上</b>で採点が出る。パスも可。<b>参考手は簡易botの推奨</b>でモデル由来ではない。'+
+       '<b>軸は最も弱い（AUROC 0.55）</b>ので採点はごく参考程度に。',
+  routeLabel:'簡易botが薦める打点',
+  note:'配石の線・広がりのスタイル差を映すが、<b>軸は最弱</b>（粗い配石だけでは段級位を読みにくい）で相手も簡易botのため、ごく参考程度に。',
+  resultLine:g=>`／あなたの着手 ${g.xs.length}手・パス${g.passes}`,
+  feat(g){const xs=g.xs,ys=g.ys,npass=g.passes,nmv=xs.length+npass;
+    if(xs.length<15)return null;
+    const line=xs.map((x,i)=>Math.min(Math.min(x,18-x),Math.min(ys[i],18-ys[i]))+1);
+    const mean=a=>a.reduce((s,v)=>s+v,0)/a.length, rate=f=>line.filter(f).length/line.length;
+    const varp=a=>{const m=mean(a);return mean(a.map(v=>(v-m)*(v-m)));};
+    return [rate(l=>l<=2),rate(l=>l===3),rate(l=>l===4),rate(l=>l>=5),
+            mean(line)/8, Math.sqrt(varp(xs)+varp(ys))/9, mean(line.slice(0,6))/8,
+            Math.min(nmv,300)/300, npass/Math.max(nmv,1)];},
+  setup(){return {board:new Array(GO_N*GO_N).fill(0),xs:[],ys:[],passes:0,ko:-1,last:-1,caps:0,over:false,result:'',log:'あなた（黒）の番。交点をクリック。'};},
+  suggest(g){const cand=goLegalPoints(g.board,1,g); if(!cand.length)return null;
+    let best=null,bs=-1e9,seed=g.xs.length*5+1;
+    const near=(x,y)=>{for(const[dx,dy] of [[1,0],[-1,0],[0,1],[0,-1]]){const nx=x+dx,ny=y+dy;if(nx>=0&&ny>=0&&nx<GO_N&&ny<GO_N&&g.board[goIdx(nx,ny)]!==0)return true;}return false;};
+    for(const c of cand){const line=Math.min(Math.min(c.x,18-c.x),Math.min(c.y,18-c.y))+1;
+      let s=c.cap*12+((line===3||line===4)?3:line<=2?-1:0)+(near(c.x,c.y)?2:0);
+      seed=(seed*1103515245+12345)&0x7fffffff; s+=(seed/0x7fffffff)*1.2;
+      if(s>bs){bs=s;best=c;}}
+    return best?{x:best.x,y:best.y,desc:`(${best.x+1}, ${best.y+1})`}:null;},
+  board(g){
+    const sug=(MG.routeOn&&!g.over)?this.suggest(g):null;
+    const S=17,M=13,sz=M*2+S*18;
+    let s=`<svg viewBox="0 0 ${sz} ${sz}" style="width:322px;background:#e3b96b;border-radius:4px">`;
+    for(let i=0;i<GO_N;i++){s+=`<line x1="${M}" y1="${M+i*S}" x2="${M+18*S}" y2="${M+i*S}" stroke="#5b3d1a" stroke-width="1"/>`+
+      `<line x1="${M+i*S}" y1="${M}" x2="${M+i*S}" y2="${M+18*S}" stroke="#5b3d1a" stroke-width="1"/>`;}
+    for(const sx of [3,9,15])for(const sy of [3,9,15])s+=`<circle cx="${M+sx*S}" cy="${M+sy*S}" r="2.5" fill="#5b3d1a"/>`;
+    for(let y=0;y<GO_N;y++)for(let x=0;x<GO_N;x++){const v=g.board[goIdx(x,y)];if(v){
+      const isLast=goIdx(x,y)===g.last;
+      s+=`<circle cx="${M+x*S}" cy="${M+y*S}" r="${S*0.46}" fill="${v===1?'#111':'#fafafa'}" stroke="${isLast?'#c2410c':'#555'}" stroke-width="${isLast?2:.5}"/>`;}}
+    if(sug)s+=`<circle cx="${M+sug.x*S}" cy="${M+sug.y*S}" r="${S*0.42}" fill="none" stroke="#2a7fb8" stroke-width="2.5"/>`;
+    // clickable intersections
+    for(let y=0;y<GO_N;y++)for(let x=0;x<GO_N;x++)s+=`<rect x="${M+x*S-S/2}" y="${M+y*S-S/2}" width="${S}" height="${S}" fill="transparent" style="cursor:pointer" onclick="gosel(${x},${y})"/>`;
+    s+='</svg>';
+    s+=`<div class="sub" style="margin-top:.35rem;font-size:.84rem">${g.log}　取った石 ${g.caps}</div>`;
+    return s;
+  },
+  controls(g){return `<div style="margin-top:.4rem"><button class="btn" style="padding:.25rem .6rem" onclick="gopass()">パス</button></div>`;},
+};
+function goEnd(g,reason){g.over=true;g.result=reason;}
+function goAfterUser(g){
+  const cfg=MG.cfg;
+  if(g.xs.length>=40){goEnd(g,'中断（40手）');return;}
+  const bm=goBotMove(g);
+  if(bm){g.board=bm.r.board;g.ko=bm.r.koPoint;g.last=goIdx(bm.x,bm.y);g.caps+=bm.cap;g.log='あなた（黒）の番。';}
+  else {g.log='相手パス。あなたの番。';}
+}
+function gosel(x,y){
+  const g=MG.g; if(g.over)return;
+  const r=goTryPlace(g.board,x,y,1,g); if(!r.ok){g.log='そこには打てません。';renderTurn();return;}
+  g.board=r.board; g.ko=r.koPoint; g.last=goIdx(x,y); g.caps+=r.captured;
+  g.xs.push(x); g.ys.push(y);
+  goAfterUser(g);
+  renderTurn(); if(g.over)finishTurn();
+}
+function gopass(){
+  const g=MG.g; if(g.over)return;
+  g.passes++;
+  if(g.passes>=2){goEnd(g,'終局（連続パス）');renderTurn();finishTurn();return;}
+  goAfterUser(g); renderTurn(); if(g.over)finishTurn();
 }
 boot();
 </script>
