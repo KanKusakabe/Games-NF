@@ -193,6 +193,10 @@ function miniHTML(){return `<div class="mini">
   <div class="row">
     <div><canvas id="mg" width="380" height="380"></canvas>
       <div class="mono" style="margin-top:.4rem">残り <b id="mgt">30.0</b>s ／ スコア <b id="mgs">0</b> ／ <button class="btn" id="mgb">スタート</button></div>
+      <label style="display:flex;align-items:center;gap:.4rem;margin-top:.45rem;font-size:.88rem">
+        <input type="checkbox" id="mgroute" checked>
+        <span><b style="color:#2a7fb8">— 経路ヒント</b>を表示（<span class="sub">最寄りドットへ向かいゴーストを避ける貪欲経路。<b>参考ヒューリスティックでモデル由来ではない</b>——技量軸はルートを学習していない）</span></span>
+      </label>
     </div>
     <div>
       <div id="mglive" style="display:none">
@@ -200,7 +204,7 @@ function miniHTML(){return `<div class="mini">
         <div><span class="score" id="mglz" style="font-size:1.5rem">–</span><span class="sub"> パーセンタイル（暫定・ここまでの累積）</span></div>
         <div class="gauge"><i id="mglf"></i><span id="mglm"></span></div>
         <div class="tips" id="mgltips"></div>
-        <div class="sub" style="font-size:.82rem;margin-top:.3rem"><b>今すべきこと</b>（直近5秒の動きを強い層と比較、tercile方向・データ由来）。ルートは示さない——データに状態→手のポリシーが無いため。</div>
+        <div class="sub" style="font-size:.82rem;margin-top:.3rem"><b>今すべきこと</b>（直近5秒の動きを強い層と比較、tercile方向・データ由来）。<br>左の<b style="color:#2a7fb8">経路ヒント</b>は別物の<b>参考ヒューリスティック</b>——技量軸（モデル）は状態→手のルートを学習していない。</div>
       </div>
       <div id="mgresult">
         <div class="sub">プレイ結果の採点：</div>
@@ -230,8 +234,38 @@ function initMini(){
   const set=(e,v)=>{const k=e.key; if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(k)){keys[k]=v;e.preventDefault();}};
   window.onkeydown=e=>set(e,1); window.onkeyup=e=>set(e,0);
   MG.keys=keys;
+  const rt=document.getElementById('mgroute');
+  MG.routeOn=rt.checked; rt.onchange=()=>{MG.routeOn=rt.checked; if(!MG.run)drawMini();};
   document.getElementById('mgb').onclick=()=>startMini();
   drawMini();
+}
+// Heuristic route hint (NOT model-derived): greedy path to the nearest dot that steers
+// clear of the ghost. Purely a play aid — the skill axis has no state->move policy.
+function routeTarget(){
+  if(!MG.dots||!MG.dots.size)return null;
+  let best=null,bc=1e9;
+  for(const k of MG.dots){const[x,y]=k.split(',').map(Number);
+    const d=Math.max(Math.abs(x-MG.px),Math.abs(y-MG.py));      // chebyshev (diagonals allowed)
+    const dg=Math.max(Math.abs(x-MG.gx),Math.abs(y-MG.gy));
+    const cost=d+(dg<3?(3-dg)*4:0);                              // avoid dots hugging the ghost
+    if(cost<bc){bc=cost;best=[x,y];}}
+  return best;
+}
+function computeRoute(){
+  const tgt=routeTarget(); if(!tgt)return [];
+  const path=[]; let x=MG.px,y=MG.py;
+  for(let i=0;i<16&&(x!==tgt[0]||y!==tgt[1]);i++){
+    let best=null,bc=1e9;
+    for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++){
+      if(!dx&&!dy)continue;
+      const nx=x+dx,ny=y+dy;
+      if(nx<1||ny<1||nx>MG.N-2||ny>MG.N-2)continue;
+      const chase=Math.max(Math.abs(nx-MG.gx),Math.abs(ny-MG.gy));
+      const c=Math.max(Math.abs(nx-tgt[0]),Math.abs(ny-tgt[1]))+(chase<=1?10:0); // dodge ghost
+      if(c<bc){bc=c;best=[nx,ny];}}
+    if(!best)break; x=best[0];y=best[1]; path.push([x,y]);
+  }
+  return path;
 }
 function newDots(N){const s=new Set();for(let y=1;y<N-1;y++)for(let x=1;x<N-1;x++)s.add(x+','+y);return s;}
 function startMini(){
@@ -309,6 +343,23 @@ function drawMini(){
   const {ctx,cv,N,CELL}=MG; ctx.clearRect(0,0,cv.width,cv.height);
   ctx.fillStyle='#0b0b1a';ctx.fillRect(0,0,cv.width,cv.height);
   if(MG.dots){ctx.fillStyle='#ffd76a';MG.dots.forEach(k=>{const[x,y]=k.split(',').map(Number);ctx.beginPath();ctx.arc((x+.5)*CELL,(y+.5)*CELL,2,0,7);ctx.fill();});}
+  // heuristic route hint (draw under the sprites)
+  if(MG.px!=null&&MG.routeOn&&MG.dots&&MG.dots.size){
+    const route=computeRoute();
+    if(route.length){
+      ctx.strokeStyle='rgba(90,170,235,.85)';ctx.lineWidth=3;ctx.setLineDash([5,5]);
+      ctx.beginPath();ctx.moveTo((MG.px+.5)*CELL,(MG.py+.5)*CELL);
+      route.forEach(([x,y])=>ctx.lineTo((x+.5)*CELL,(y+.5)*CELL));ctx.stroke();ctx.setLineDash([]);
+      const t=route[route.length-1]; // target marker
+      ctx.strokeStyle='rgba(90,170,235,.95)';ctx.lineWidth=2;ctx.beginPath();ctx.arc((t[0]+.5)*CELL,(t[1]+.5)*CELL,CELL*.45,0,7);ctx.stroke();
+      const [ax,ay]=route[0]; // next-step arrowhead
+      const ang=Math.atan2(ay-MG.py,ax-MG.px),cx=(ax+.5)*CELL,cy=(ay+.5)*CELL,r=CELL*.32;
+      ctx.fillStyle='rgba(90,170,235,.95)';ctx.beginPath();
+      ctx.moveTo(cx+Math.cos(ang)*r,cy+Math.sin(ang)*r);
+      ctx.lineTo(cx+Math.cos(ang+2.5)*r,cy+Math.sin(ang+2.5)*r);
+      ctx.lineTo(cx+Math.cos(ang-2.5)*r,cy+Math.sin(ang-2.5)*r);ctx.closePath();ctx.fill();
+    }
+  }
   if(MG.gx!=null){ctx.fillStyle='#ff5a5a';ctx.beginPath();ctx.arc((MG.gx+.5)*CELL,(MG.gy+.5)*CELL,CELL*.4,0,7);ctx.fill();}
   if(MG.px!=null){ctx.fillStyle='#ffcf33';ctx.beginPath();ctx.arc((MG.px+.5)*CELL,(MG.py+.5)*CELL,CELL*.42,0.25*Math.PI,1.75*Math.PI);ctx.lineTo((MG.px+.5)*CELL,(MG.py+.5)*CELL);ctx.fill();
     // subtle idle cue: ring + nudge when recently too static (data says ▼NOOP raises skill)
