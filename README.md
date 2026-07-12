@@ -31,6 +31,11 @@ Ms.パックマン（Atari Grand Challenge・実人間）で、**プレイスタ
 さらに**全6ゲームとも実際に遊んで採点**できる（Ms.パックマン/Space Invaders/Overcooked＝実時間、Hanabi/チェス/囲碁＝ターン制でAI相手）。
 学習データと同じ特徴を生成し、プレイ中は**ライブ・コーチ**（データ由来）＋**参考手・経路ヒント**（参考ヒューリスティック）付き。モデル推論なし・**100%実データ由来**。
 
+**[▶ bridge.html](https://kankusakabe.github.io/Games-NF/bridge.html)**：**潜在でゲームを繋ぐ**実験（パックマン↔インベーダー）。片方を遊ぶと、
+共通スタイル潜在を通じてもう片方が同じ打ち回しで**エコー自動プレイ**する（双方向）。
+
+各ページ相互リンク：[結果](https://kankusakabe.github.io/Games-NF/) ／ [触って体験](https://kankusakabe.github.io/Games-NF/play.html) ／ [潜在で繋ぐ](https://kankusakabe.github.io/Games-NF/bridge.html)
+
 ## 再現
 ```bash
 python -m gamesnf.games       # 各ゲームの技量軸を学習→図→1枚のdocs/index.html
