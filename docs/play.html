@@ -500,7 +500,7 @@ function startTurn(){
 }
 function renderTurn(){
   const cfg=MG.cfg,g=MG.g;
-  const sug = (MG.routeOn && !g.over) ? cfg.best(g,0) : null;
+  const sug = (MG.routeOn && !g.over) ? (cfg.suggest?cfg.suggest(g):cfg.best(g,0)) : null;
   document.getElementById('hboard').innerHTML = cfg.board(g) +
     (sug?`<div style="margin-top:.4rem;color:#2a7fb8;font-size:.86rem">参考手：<b>${sug.desc}</b></div>`:'') +
     (g.over?'':cfg.controls(g,sug));
@@ -530,7 +530,8 @@ function finishTurn(){
   document.getElementById('mgf').style.width=z1+'%';document.getElementById('mgm').style.left=z1+'%';
   const tips=advise(stdz(f,d),d);
   document.getElementById('mgtips').innerHTML=tips.map(t=>`<span class="tip ${t.up?'up':'dn'}">${t.up?'▲':'▼'} ${t.name}を${t.up?'増やす':'減らす'}</span>`).join('')||'<span class="tip">上位層と近い打ち回し</span>';
-  document.getElementById('mgnbr').innerHTML=`近い実プレイヤー ${nb.length}人：${d.label} <b>${Math.round(sk*10)/10}</b>（近傍平均）／あなたのチーム花火 ${g.score}点`;
+  const tail=cfg.resultLine?cfg.resultLine(g):'';
+  document.getElementById('mgnbr').innerHTML=`近い実プレイヤー ${nb.length}人：${d.label} <b>${Math.round(sk*10)/10}</b>（近傍平均）${tail}`;
   const note=document.getElementById('mgnote');note.style.display='';
   note.innerHTML=`この採点は<b>実際の${d.name}実プレイヤー${d.n}人</b>に照らしたもの。${cfg.note}`;
 }
@@ -552,6 +553,7 @@ PLAY.hanabi={
        'ヒントは情報トークン消費、失敗3回で終了。<b>参考手は omniscient な簡易botの推奨</b>で、相手botの強さが採点に影響する点は正直に注記。',
   routeLabel:'omniscient な簡易botが薦める手',
   note:'捨てすぎ（情報を渡さない）だと下位、ヒント主体の協調だと上位に寄る。<b>相手はAI</b>なので実人間ペアの分布とは差が出る点に注意。',
+  resultLine:g=>`／あなたのチーム花火 ${g.score}点`,
   feat(g){const np=g.disc+g.colh+g.rnkh; if(np<5)return null;
     const ds=g.disc/np,cs=g.colh/np,rs=g.rnkh/np, pref=g.colh/(g.colh+g.rnkh+1e-9);
     const p=[ds,cs,rs].filter(x=>x>0);
@@ -624,6 +626,154 @@ PLAY.hanabi={
 };
 function hact2(t,val){const g=MG.g;if(g.over)return; MG.cfg.apply(g,0,{t,val}); MG.cfg.after(g);
   if(!g.over){MG.cfg.apply(g,1,MG.cfg.best(g,1));MG.cfg.after(g);} renderTurn(); if(g.over)finishTurn();}
+
+/* ================= コンパクトなチェスエンジン ================= */
+const CH_VAL={p:1,n:3,b:3,r:5,q:9,k:100};
+const CH_GLYPH={p:'♟',n:'♞',b:'♝',r:'♜',q:'♛',k:'♚'};
+function chStart(){
+  const b=new Array(64).fill(null);
+  const back=['r','n','b','q','k','b','n','r'];
+  for(let c=0;c<8;c++){b[c]={t:back[c],c:1};b[8+c]={t:'p',c:1};b[48+c]={t:'p',c:0};b[56+c]={t:back[c],c:0};}
+  return {b,cast:{wk:true,wq:true,bk:true,bq:true},ep:-1};
+}
+function chAttacked(st,sq,by){ // is sq attacked by color `by`
+  const b=st.b, r=sq>>3, c=sq&7;
+  const pd = by===0?1:-1; // white pawns sit one rank BELOW (higher r) the squares they attack
+  for(const dc of [-1,1]){const rr=r+pd,cc=c+dc; if(rr>=0&&rr<8&&cc>=0&&cc<8){const p=b[rr*8+cc]; if(p&&p.c===by&&p.t==='p')return true;}}
+  for(const[dr,dc] of [[-2,-1],[-2,1],[2,-1],[2,1],[-1,-2],[-1,2],[1,-2],[1,2]]){const rr=r+dr,cc=c+dc;if(rr>=0&&rr<8&&cc>=0&&cc<8){const p=b[rr*8+cc];if(p&&p.c===by&&p.t==='n')return true;}}
+  for(const[dr,dc] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]){const rr=r+dr,cc=c+dc;if(rr>=0&&rr<8&&cc>=0&&cc<8){const p=b[rr*8+cc];if(p&&p.c===by&&p.t==='k')return true;}}
+  const rays=[[-1,0,'r'],[1,0,'r'],[0,-1,'r'],[0,1,'r'],[-1,-1,'b'],[-1,1,'b'],[1,-1,'b'],[1,1,'b']];
+  for(const[dr,dc,tt] of rays){let rr=r+dr,cc=c+dc;
+    while(rr>=0&&rr<8&&cc>=0&&cc<8){const p=b[rr*8+cc];
+      if(p){if(p.c===by&&(p.t==='q'||p.t===tt))return true;break;} rr+=dr;cc+=dc;}}
+  return false;
+}
+function chKing(st,color){for(let i=0;i<64;i++){const p=st.b[i];if(p&&p.c===color&&p.t==='k')return i;}return -1;}
+function chInCheck(st,color){return chAttacked(st,chKing(st,color),1-color);}
+function chGen(st,color){ // pseudo-legal moves
+  const b=st.b, mv=[];
+  const add=(from,to,extra)=>{mv.push(Object.assign({from,to,t:b[from].t,cap:!!b[to]||(extra&&extra.ep)},extra||{}));};
+  for(let i=0;i<64;i++){const p=b[i];if(!p||p.c!==color)continue;const r=i>>3,c=i&7;
+    if(p.t==='p'){const d=color===0?-1:1, start=color===0?6:1, last=color===0?0:7;
+      const one=(r+d)*8+c;
+      if(r+d>=0&&r+d<8&&!b[one]){ if(r+d===last)add(i,one,{promo:true}); else add(i,one,{});
+        if(r===start&&!b[(r+2*d)*8+c])add(i,(r+2*d)*8+c,{dbl:true}); }
+      for(const dc of [-1,1]){const cc=c+dc,rr=r+d; if(cc<0||cc>7||rr<0||rr>7)continue; const to=rr*8+cc;
+        if(b[to]&&b[to].c!==color){ if(rr===last)add(i,to,{promo:true}); else add(i,to,{}); }
+        else if(to===st.ep)add(i,to,{ep:true});}
+    } else if(p.t==='n'){for(const[dr,dc] of [[-2,-1],[-2,1],[2,-1],[2,1],[-1,-2],[-1,2],[1,-2],[1,2]]){const rr=r+dr,cc=c+dc;if(rr<0||rr>7||cc<0||cc>7)continue;const to=rr*8+cc;if(!b[to]||b[to].c!==color)add(i,to,{});}
+    } else if(p.t==='k'){for(const[dr,dc] of [[-1,-1],[-1,0],[-1,1],[0,-1],[0,1],[1,-1],[1,0],[1,1]]){const rr=r+dr,cc=c+dc;if(rr<0||rr>7||cc<0||cc>7)continue;const to=rr*8+cc;if(!b[to]||b[to].c!==color)add(i,to,{});}
+      // castling
+      const home=color===0?56:0, opp=1-color;
+      const ks=color===0?st.cast.wk:st.cast.bk, qs=color===0?st.cast.wq:st.cast.bq;
+      if(ks&&!b[home+5]&&!b[home+6]&&b[home+7]&&b[home+7].t==='r'&&!chAttacked(st,home+4,opp)&&!chAttacked(st,home+5,opp)&&!chAttacked(st,home+6,opp))add(i,home+6,{castle:'K'});
+      if(qs&&!b[home+1]&&!b[home+2]&&!b[home+3]&&b[home]&&b[home].t==='r'&&!chAttacked(st,home+4,opp)&&!chAttacked(st,home+3,opp)&&!chAttacked(st,home+2,opp))add(i,home+2,{castle:'Q'});
+    } else { const dirs = p.t==='b'?[[-1,-1],[-1,1],[1,-1],[1,1]]:p.t==='r'?[[-1,0],[1,0],[0,-1],[0,1]]:[[-1,-1],[-1,1],[1,-1],[1,1],[-1,0],[1,0],[0,-1],[0,1]];
+      for(const[dr,dc] of dirs){let rr=r+dr,cc=c+dc;while(rr>=0&&rr<8&&cc>=0&&cc<8){const to=rr*8+cc;if(!b[to])add(i,to,{});else{if(b[to].c!==color)add(i,to,{});break;}rr+=dr;cc+=dc;}}
+    }
+  }
+  return mv;
+}
+function chMake(st,m){
+  const b=st.b.slice(), cast=Object.assign({},st.cast); let ep=-1;
+  const color=b[m.from].c;
+  b[m.to]=b[m.from]; b[m.from]=null;
+  if(m.promo)b[m.to]={t:'q',c:color};
+  if(m.ep){const cap=(color===0?m.to+8:m.to-8); b[cap]=null;}
+  if(m.dbl)ep=(color===0?m.to+8:m.to-8);
+  if(m.castle){const home=color===0?56:0; if(m.castle==='K'){b[home+5]=b[home+7];b[home+7]=null;} else {b[home+3]=b[home];b[home]=null;}}
+  // update castling rights
+  if(m.t==='k'){if(color===0){cast.wk=cast.wq=false;}else{cast.bk=cast.bq=false;}}
+  const touch=(sq)=>{if(sq===56)cast.wq=false;if(sq===63)cast.wk=false;if(sq===0)cast.bq=false;if(sq===7)cast.bk=false;};
+  touch(m.from);touch(m.to);
+  return {b,cast,ep};
+}
+function chLegal(st,color){return chGen(st,color).filter(m=>{const ns=chMake(st,m);return !chInCheck(ns,color);});}
+function chEval(st){let s=0;
+  for(let i=0;i<64;i++){const p=st.b[i];if(!p)continue;const r=i>>3,c=i&7,sign=p.c===0?1:-1;
+    s+=sign*CH_VAL[p.t];
+    const rr=p.c===0?7-r:r;                                  // ranks advanced from own back rank
+    if(p.t==='n'||p.t==='b'){if(rr===0)s-=sign*0.4; s+=sign*Math.min(c,7-c)*0.05;} // develop toward centre
+    if(p.t==='p'&&(c===3||c===4)&&rr>=2)s+=sign*0.2;         // central pawn presence
+    if(p.t==='q'&&rr>=2)s-=sign*0.15;                        // discourage very early queen sorties
+    if(p.t==='k')s+=sign*((c===6||c===2)?0.5:(rr===0?0.1:-0.3)); // reward castled king, penalise wandering
+  }
+  return s;}
+function chSearch(st,color,depth,alpha,beta){
+  const moves=chLegal(st,color);
+  if(!moves.length)return chInCheck(st,color)?(color===0?-9999:9999):0;
+  if(depth===0)return chEval(st);
+  let best=color===0?-1e9:1e9;
+  for(const m of moves){const v=chSearch(chMake(st,m),1-color,depth-1,alpha,beta);
+    if(color===0){if(v>best)best=v;if(v>alpha)alpha=v;}else{if(v<best)best=v;if(v<beta)beta=v;}
+    if(beta<=alpha)break;}
+  return best;
+}
+function chBest(st,color){const moves=chLegal(st,color);if(!moves.length)return null;
+  let best=null,bv=color===0?-1e9:1e9;
+  // light ordering: captures first for better pruning
+  moves.sort((a,b)=>(b.cap?1:0)-(a.cap?1:0));
+  for(const m of moves){const v=chSearch(chMake(st,m),1-color,1,-1e9,1e9);
+    if(color===0?v>bv:v<bv){bv=v;best=m;}}
+  return best;
+}
+
+PLAY.chess={
+  turnBased:true, title:'チェス（対戦）', label:'レート',
+  help:'白番（下）であなたが指す。<b>駒をクリック→行き先をクリック</b>。相手は簡易AI（2手読み）。'+
+       'あなたの手の<b>駒の使い方・捕獲・王手・キャスリング・中央志向</b>から採点する。約20手で自動的に区切って採点。'+
+       '<b>参考手は2手読みAIの推奨</b>でモデル由来ではない。軸は弱め（AUROC 0.62）なので採点は参考程度に。',
+  routeLabel:'2手読みAIが薦める手（from→to をハイライト）',
+  note:'駒の展開・キャスリング・中央志向などのスタイル差を映すが、<b>軸は弱め</b>で相手も簡易AIのため参考程度。',
+  resultLine:g=>`／結果：${g.result||'中断'}（${g.nm}手）`,
+  feat(g){if(g.nm<8)return null;const n=g.nm;
+    return [g.pc[0]/n,g.pc[1]/n,g.pc[2]/n,g.pc[3]/n,g.pc[4]/n,g.pc[5]/n,
+            g.cap/n,g.chk/n,g.castle?1:0,g.promo/n,g.center/n,Math.min(n,60)/60];},
+  setup(){return {st:chStart(),sel:-1,pc:[0,0,0,0,0,0],cap:0,chk:0,castle:0,promo:0,center:0,nm:0,over:false,result:'',log:'あなた（白）の番。駒を選んでください。'};},
+  record(g,m,st){const ti='pnbrqk'.indexOf(m.t);g.pc[ti]++;if(m.cap)g.cap++;if(m.castle)g.castle=1;if(m.promo)g.promo++;
+    if((m.to&7)===3||(m.to&7)===4)g.center++;g.nm++;
+    if(chInCheck(chMake(st,m),1))g.chk++;},
+  endCheck(g){ // called after a move; sets over/result if terminal or move cap
+    const userColorToMove = g.turnColor; // whose turn now
+    const legal=chLegal(g.st,userColorToMove);
+    if(!legal.length){g.over=true; g.result=chInCheck(g.st,userColorToMove)?(userColorToMove===0?'あなたの負け（詰み）':'あなたの勝ち（詰み）'):'引き分け（ステイルメイト）'; return;}
+    if(g.nm>=20){g.over=true; g.result='中断（20手）';}
+  },
+  best(g,color){return chBest(g.st,color===undefined?0:color);},
+  suggest(g){const m=chBest(g.st,0); if(!m)return null;
+    const nm=s=>String.fromCharCode(97+(s&7))+(8-(s>>3));
+    return Object.assign({},m,{desc:`${CH_GLYPH[m.t]} ${nm(m.from)}→${nm(m.to)}${m.castle?'（キャスリング）':''}`});},
+  board(g){
+    const sug=(MG.routeOn&&!g.over)?chBest(g.st,0):null;
+    const dests = g.sel>=0 ? chLegal(g.st,0).filter(m=>m.from===g.sel).map(m=>m.to) : [];
+    let h='<div style="display:grid;grid-template-columns:repeat(8,1fr);width:300px;border:2px solid #333">';
+    for(let i=0;i<64;i++){const r=i>>3,cc=i&7;const light=(r+cc)%2===0;
+      let bg=light?'#f0d9b5':'#b58863';
+      if(sug&&(i===sug.from||i===sug.to))bg=light?'#cfe6c9':'#a9d3a0';
+      if(i===g.sel)bg='#f6eb61';
+      const p=g.st.b[i];const glyph=p?`<span style="color:${p.c===0?'#fff':'#111'};text-shadow:0 0 2px ${p.c===0?'#000':'#fff'}">${CH_GLYPH[p.t]}</span>`:'';
+      const dot=dests.includes(i)?'<span style="position:absolute;width:10px;height:10px;border-radius:50%;background:rgba(42,127,184,.7);left:50%;top:50%;transform:translate(-50%,-50%)"></span>':'';
+      h+=`<div onclick="csel(${i})" style="position:relative;aspect-ratio:1;background:${bg};display:flex;align-items:center;justify-content:center;font-size:26px;cursor:pointer">${glyph}${dot}</div>`;}
+    h+='</div>';
+    h+=`<div class="sub" style="margin-top:.4rem;font-size:.84rem">${g.log}${chInCheck(g.st,0)&&!g.over?'　<b style="color:#c2410c">王手！</b>':''}</div>`;
+    return h;
+  },
+  controls(){return '';},
+};
+function csel(i){
+  const g=MG.g,cfg=MG.cfg; if(g.over)return;
+  const p=g.st.b[i];
+  if(g.sel<0){ if(p&&p.c===0){g.sel=i;renderTurn();} return; }
+  if(i===g.sel){g.sel=-1;renderTurn();return;}
+  const legal=chLegal(g.st,0).filter(m=>m.from===g.sel&&m.to===i);
+  if(!legal.length){ if(p&&p.c===0){g.sel=i;renderTurn();} return; }
+  const m=legal[0];
+  cfg.record(g,m,g.st);           // accumulate style features from YOUR move
+  g.st=chMake(g.st,m); g.sel=-1; g.log='相手が考え中…';
+  g.turnColor=1; cfg.endCheck(g);
+  if(!g.over){ const am=chBest(g.st,1); if(am){g.st=chMake(g.st,am);} g.turnColor=0; cfg.endCheck(g); if(!g.over)g.log='あなた（白）の番。'; }
+  renderTurn(); if(g.over)finishTurn();
+}
 boot();
 </script>
 </body></html>
