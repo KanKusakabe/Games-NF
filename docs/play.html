@@ -1,0 +1,297 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Games-NF — 触って体験：採点＆一歩上の助言</title><style>
+body{font:16px/1.75 -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;max-width:980px;margin:0 auto;padding:2rem 1rem;color:#222;background:#fff}
+h1{line-height:1.35;margin:.2rem 0}.sub{color:#666}a{color:#c2410c}
+.crumb{font-size:.9rem;margin-bottom:1rem}
+.lead{background:#f7f5f2;border-radius:12px;padding:1rem 1.2rem}
+h2{border-left:5px solid #d97757;padding-left:.6rem}
+code{background:#f0eee9;padding:.1rem .3rem;border-radius:4px}
+.tabs{display:flex;flex-wrap:wrap;gap:.4rem;margin:1.2rem 0 .4rem}
+.tab{padding:.4rem .8rem;border-radius:999px;background:#f0eee9;border:1px solid #e5e5e5;cursor:pointer;font-size:.95rem}
+.tab.on{background:#c2410c;color:#fff;border-color:#c2410c}
+.tab .m{font-size:.8rem;opacity:.8}
+.panel{border:1px solid #e5e5e5;border-radius:14px;padding:1.1rem 1.2rem;background:#fff;margin-top:.6rem}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:1.4rem}
+@media(max-width:720px){.row{grid-template-columns:1fr}}
+.lev{margin:.5rem 0}
+.lev label{display:flex;justify-content:space-between;font-size:.92rem;margin-bottom:.1rem}
+.lev .val{color:#c2410c;font-variant-numeric:tabular-nums}
+.lev.islever label b{color:#111}
+.lev input[type=range]{width:100%}
+.badge{font-size:.72rem;padding:.05rem .4rem;border-radius:999px;background:#eaf0ff;border:1px solid #cfe0ff;color:#345;margin-left:.35rem}
+.btn{padding:.45rem .9rem;border-radius:8px;border:1px solid #d97757;background:#fff;color:#c2410c;cursor:pointer;font-size:.92rem}
+.btn:hover{background:#fdeee6}
+.gauge{position:relative;height:14px;background:#eee;border-radius:8px;margin:.5rem 0}
+.gauge>i{position:absolute;top:0;bottom:0;left:0;background:linear-gradient(90deg,#f3cbb2,#c2410c);border-radius:8px}
+.gauge>span{position:absolute;top:-4px;width:3px;height:22px;background:#111;border-radius:2px}
+.score{font-size:2rem;color:#c2410c;font-weight:700;line-height:1}
+.tips{display:flex;flex-wrap:wrap;gap:.4rem;margin-top:.5rem}
+.tip{font-size:.9rem;padding:.2rem .55rem;border-radius:999px;background:#f0eee9;border:1px solid #e5e5e5}
+.tip.up{background:#eaf5ec;border-color:#bfe0c6}.tip.dn{background:#fdeee6;border-color:#f3cbb2}
+.nbr{font-size:.88rem;color:#555;margin-top:.5rem}
+.nbr b{color:#222}
+.note{background:#faf8f5;border-left:3px solid #d97757;padding:.5rem .8rem;border-radius:0 8px 8px 0;font-size:.9rem;margin-top:.7rem}
+.note.weak{border-left-color:#b45;background:#fbf1f3}
+.mini{margin-top:1.4rem;border-top:1px dashed #e5e5e5;padding-top:1rem}
+canvas{background:#0b0b1a;border-radius:10px;display:block;max-width:100%;touch-action:none}
+.mono{font-variant-numeric:tabular-nums}
+kbd{background:#f0eee9;border:1px solid #ccc;border-bottom-width:2px;border-radius:4px;padding:0 .35rem;font-size:.85rem}
+</style></head><body>
+<div class="crumb"><a href="index.html">&larr; Games-NF 結果ページへ</a> ／ <a href="https://kankusakabe.github.io/KAN-NF/">KAN-NF 統括</a></div>
+<h1>触って体験：技量軸で「採点」と「一歩上の助言」</h1>
+<p class="sub">学習した技量軸 z₁ を実際に動かして体験する。<b>モデル推論なし・100%実データ由来</b>——あなたの打ち方に<b>最も近い実在プレイヤー</b>を探して採点する。</p>
+<p class="lead"><b>使い方</b>：ゲームを選び、スライダーで<b>打ち方（プレイスタイル）</b>を動かす。その場で
+①<b>採点ゲージ</b>（近い実プレイヤーの技量パーセンタイル）②<b>助言チップ</b>（上位層に届いていない項目だけ ▲増やす／▼減らす）
+③<b>近い実プレイヤー例</b>（実際のスコア/レート等）が更新される。<b>「実プレイヤー読込」</b>でスライダーを実データの1人にセットも可能。
+Ms.パックマンは下部で<b>実際に遊んで採点</b>もできる。</p>
+
+<div class="tabs" id="tabs"></div>
+<div id="panel"></div>
+
+<p class="sub" style="margin-top:2rem">採点＝標準化特徴空間での <code>kNN(k=25)</code> 近傍の z₁ パーセンタイル平均。助言＝各レバーで「実技量 上位1/3 の平均（標準化）」に届かない向き（<code>phase2.py</code> と同じ tercile 方向）。データは <code>python -m gamesnf.export_app</code> で再生成。</p>
+
+<script>
+const K=25;
+const state={games:[], data:{}, cur:null, sliders:{}};
+
+async function boot(){
+  const idx = await fetch('app_data/index.json').then(r=>r.json());
+  state.games = idx;
+  const tabs = document.getElementById('tabs');
+  idx.forEach((g,i)=>{
+    const t=document.createElement('div'); t.className='tab'+(i===0?' on':'');
+    t.innerHTML=`${g.name}<span class="m"> ${g.mode}</span>`;
+    t.onclick=()=>select(g.key,t);
+    t.dataset.key=g.key; tabs.appendChild(t);
+  });
+  await select(idx[0].key, tabs.firstChild);
+}
+function markTab(key){[...document.getElementById('tabs').children].forEach(t=>t.classList.toggle('on',t.dataset.key===key));}
+
+async function select(key,tabEl){
+  markTab(key);
+  if(!state.data[key]) state.data[key]=await fetch(`app_data/${key}.json`).then(r=>r.json());
+  state.cur=key; render();
+}
+
+function stdz(vec,d){return vec.map((v,j)=>(v-d.mu[j])/d.sd[j]);}
+function knn(xz,d){
+  const arr=d.players.map(p=>{
+    let s=0;for(let j=0;j<xz.length;j++){const e=xz[j]-p.fs[j];s+=e*e;}
+    return {p,dist:s};
+  });
+  arr.sort((a,b)=>a.dist-b.dist);
+  return arr.slice(0,Math.min(K,arr.length)).map(o=>o.p);
+}
+function advise(xz,d){
+  // candidate levers with strong global direction, sorted by magnitude
+  const lv=d.feats.filter(f=>f.is_lever).map(f=>f.idx)
+            .filter(j=>Math.abs(d.improve[j])>=0.15)
+            .sort((a,b)=>Math.abs(d.improve[b])-Math.abs(d.improve[a]));
+  const tips=[];
+  for(const j of lv){
+    const gap=d.target[j]-xz[j];               // how far below the strong-player norm
+    const imp=d.improve[j];
+    if(Math.sign(gap)===Math.sign(imp)||Math.abs(gap)<0.1){
+      tips.push({up:imp>0,name:d.feats[j].name});
+      if(tips.length===3)break;
+    }
+  }
+  if(!tips.length&&lv.length){const j=lv[0];tips.push({up:d.improve[j]>0,name:d.feats[j].name});}
+  return tips;
+}
+function axisWord(a){return a>=0.75?['強い','']:a>=0.62?['中程度','']:['弱い','weak'];}
+
+function render(){
+  const d=state.data[state.cur];
+  const p=document.getElementById('panel');
+  const [word,cls]=axisWord(d.auroc);
+  let sliders='';
+  d.feats.forEach(f=>{
+    const init = state.sliders[state.cur]?.[f.idx] ?? f.med;
+    sliders+=`<div class="lev ${f.is_lever?'islever':''}">
+      <label><span>${f.is_lever?'<b>'+f.name+'</b>':f.name}${f.is_lever?'<span class=badge>助言対象</span>':''}</span>
+      <span class="val" id="v${f.idx}"></span></label>
+      <input type="range" id="s${f.idx}" min="${f.min}" max="${f.max}" step="${f.step}" value="${init}"
+        oninput="onSlide(${f.idx},this.value)"></div>`;
+  });
+  const mini = state.cur==='mspacman' ? miniHTML() : '';
+  p.innerHTML=`<div class="panel">
+    <div class="row">
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:center">
+          <b>${d.name}</b>
+          <button class="btn" onclick="loadReal()">🎲 実プレイヤー読込</button>
+        </div>
+        <div class="sub" style="font-size:.85rem">技量ラベル＝${d.label}（範囲 ${d.skill_min}〜${d.skill_max}）／件数 ${d.n}／軸の効き：<b>${word}</b>（初心者vs熟練 AUROC ${d.auroc}）</div>
+        <div style="margin-top:.6rem">${sliders}</div>
+      </div>
+      <div>
+        <div class="sub">採点：技量軸 z₁ =</div>
+        <div><span class="score" id="scoreVal">–</span><span class="sub"> パーセンタイル</span></div>
+        <div class="gauge"><i id="gfill"></i><span id="gmark"></span></div>
+        <div class="sub" style="margin-top:.7rem">一歩上（実技量 上位1/3）に近づくには：</div>
+        <div class="tips" id="tips"></div>
+        <div class="nbr" id="nbr"></div>
+        ${cls==='weak'?`<div class="note weak">この軸は<b>弱め</b>（AUROC ${d.auroc}）。プレイスタイルだけでは技量が読みにくいゲームなので、採点・助言は<b>参考程度</b>に。</div>`:''}
+      </div>
+    </div>
+    ${mini}
+  </div>`;
+  // init slider display + score
+  d.feats.forEach(f=>document.getElementById('v'+f.idx).textContent=(+ (state.sliders[state.cur]?.[f.idx] ?? f.med)).toFixed(3));
+  recompute();
+  if(state.cur==='mspacman') initMini();
+}
+
+function readVec(){
+  const d=state.data[state.cur];
+  return d.feats.map(f=>parseFloat(document.getElementById('s'+f.idx).value));
+}
+function onSlide(idx,val){
+  document.getElementById('v'+idx).textContent=(+val).toFixed(3);
+  (state.sliders[state.cur] ||= {})[idx]=+val;
+  recompute();
+}
+function loadReal(){
+  const d=state.data[state.cur];
+  const pl=d.players[Math.floor(Math.random()*d.players.length)];
+  const raw=pl.fs.map((z,j)=>z*d.sd[j]+d.mu[j]);
+  d.feats.forEach(f=>{
+    const el=document.getElementById('s'+f.idx);
+    const v=Math.min(f.max,Math.max(f.min,raw[f.idx]));
+    el.value=v; document.getElementById('v'+f.idx).textContent=v.toFixed(3);
+    (state.sliders[state.cur] ||= {})[f.idx]=v;
+  });
+  recompute(pl);
+}
+function recompute(picked){
+  const d=state.data[state.cur];
+  const xz=stdz(readVec(),d);
+  const nb=knn(xz,d);
+  const z1=nb.reduce((a,p)=>a+p.z1p,0)/nb.length;
+  const sk=nb.reduce((a,p)=>a+p.skill,0)/nb.length;
+  document.getElementById('scoreVal').textContent=Math.round(z1);
+  document.getElementById('gfill').style.width=z1+'%';
+  document.getElementById('gmark').style.left=z1+'%';
+  const tips=advise(xz,d);
+  document.getElementById('tips').innerHTML = tips.length
+    ? tips.map(t=>`<span class="tip ${t.up?'up':'dn'}">${t.up?'▲':'▼'} ${t.name}を${t.up?'増やす':'減らす'}</span>`).join('')
+    : '<span class="tip">上位層とのスタイル差は小さい（十分に近い）</span>';
+  const skills=nb.slice(0,6).map(p=>p.skill);
+  document.getElementById('nbr').innerHTML=
+    `近い実プレイヤー ${nb.length}人：${d.label} <b>${Math.round(sk*10)/10}</b>（近傍平均）`+
+    (picked?`<br>読込元プレイヤー：${d.label} <b>${picked.skill}</b>・実技量 ${Math.round(picked.sp)}%tile`:'');
+}
+
+/* ---------- Ms.パックマン ミニゲーム（学習データと同じ11次元を生成）---------- */
+const ATARI_ACTS=[0,2,3,4,5,6,7,8,9]; // NOOP,UP,RIGHT,LEFT,DOWN,UR,UL,DR,DL
+function miniHTML(){return `<div class="mini">
+  <h2 style="border-left-color:#c2410c;font-size:1.1rem">実際に遊んで採点（Ms.パックマン型）</h2>
+  <p class="sub"><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd>（同時押しで斜め）で動いてドットを集める。約30秒プレイすると、<b>あなたの動き方から学習データと同じ11特徴</b>を作り、実プレイヤーに照らして採点する。ゴーストに触れると終了。</p>
+  <div class="row">
+    <div><canvas id="mg" width="380" height="380"></canvas>
+      <div class="mono" style="margin-top:.4rem">残り <b id="mgt">30.0</b>s ／ スコア <b id="mgs">0</b> ／ <button class="btn" id="mgb">スタート</button></div>
+    </div>
+    <div><div class="sub">プレイ結果の採点：</div>
+      <div><span class="score" id="mgz">–</span><span class="sub"> パーセンタイル</span></div>
+      <div class="gauge"><i id="mgf"></i><span id="mgm"></span></div>
+      <div class="tips" id="mgtips"></div>
+      <div class="nbr" id="mgnbr"></div>
+      <div class="note" id="mgnote" style="display:none"></div>
+    </div>
+  </div></div>`;}
+
+let MG=null;
+function initMini(){
+  const cv=document.getElementById('mg'); if(!cv)return;
+  const N=19, CELL=cv.width/N;
+  MG={cv,ctx:cv.getContext('2d'),N,CELL,run:false};
+  const keys={};
+  const set=(e,v)=>{const k=e.key; if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(k)){keys[k]=v;e.preventDefault();}};
+  window.onkeydown=e=>set(e,1); window.onkeyup=e=>set(e,0);
+  MG.keys=keys;
+  document.getElementById('mgb').onclick=()=>startMini();
+  drawMini();
+}
+function newDots(N){const s=new Set();for(let y=1;y<N-1;y++)for(let x=1;x<N-1;x++)s.add(x+','+y);return s;}
+function startMini(){
+  const N=MG.N;
+  MG.px=1;MG.py=1; MG.gx=N-2;MG.gy=N-2;
+  MG.dots=newDots(N); MG.dots.delete('1,1');
+  MG.actions=[]; MG.t=30.0; MG.score=0; MG.run=true; MG.last=null; MG.acc=0;
+  document.getElementById('mgb').textContent='プレイ中…';
+  MG.prev=performance.now();
+  requestAnimationFrame(loopMini);
+}
+function actionCode(keys){
+  const up=keys.ArrowUp, dn=keys.ArrowDown, lf=keys.ArrowLeft, rt=keys.ArrowRight;
+  if(up&&rt)return 6; if(up&&lf)return 7; if(dn&&rt)return 8; if(dn&&lf)return 9;
+  if(up)return 2; if(rt)return 3; if(lf)return 4; if(dn)return 5; return 0; // NOOP
+}
+function loopMini(now){
+  if(!MG.run)return;
+  const dt=(now-MG.prev)/1000; MG.prev=now; MG.t-=dt; MG.acc+=dt;
+  // Sample the ACTION at 30 Hz to match the real Atari stream's density: holding a
+  // direction yields many identical consecutive actions -> realistic LOW switch rate
+  // (real q5-95 = 0.01-0.07). Move the sprite only every MOVE_EVERY samples so it
+  // stays playable. NOOP is recorded whenever no key is held.
+  const STEP=1/30, MOVE_EVERY=4, GHOST_EVERY=8;
+  while(MG.acc>=STEP){
+    MG.acc-=STEP;
+    const a=actionCode(MG.keys); MG.actions.push(a);
+    MG.stepN=(MG.stepN||0)+1;
+    if(MG.stepN%MOVE_EVERY===0){
+      let nx=MG.px,ny=MG.py;
+      if(a===2||a===6||a===7)ny--; if(a===5||a===8||a===9)ny++;
+      if(a===3||a===6||a===8)nx++; if(a===4||a===7||a===9)nx--;
+      nx=Math.max(1,Math.min(MG.N-2,nx)); ny=Math.max(1,Math.min(MG.N-2,ny));
+      MG.px=nx;MG.py=ny;
+      const key=MG.px+','+MG.py;
+      if(MG.dots.has(key)){MG.dots.delete(key);MG.score+=10;}
+    }
+    if(MG.stepN%GHOST_EVERY===0){
+      if(MG.gx<MG.px)MG.gx++; else if(MG.gx>MG.px)MG.gx--;
+      if(MG.gy<MG.py)MG.gy++; else if(MG.gy>MG.py)MG.gy--;
+    }
+    if(MG.gx===MG.px&&MG.gy===MG.py){endMini(true);return;}
+  }
+  document.getElementById('mgt').textContent=Math.max(0,MG.t).toFixed(1);
+  document.getElementById('mgs').textContent=MG.score;
+  drawMini();
+  if(MG.t<=0){endMini(false);return;}
+  requestAnimationFrame(loopMini);
+}
+function drawMini(){
+  const {ctx,cv,N,CELL}=MG; ctx.clearRect(0,0,cv.width,cv.height);
+  ctx.fillStyle='#0b0b1a';ctx.fillRect(0,0,cv.width,cv.height);
+  if(MG.dots){ctx.fillStyle='#ffd76a';MG.dots.forEach(k=>{const[x,y]=k.split(',').map(Number);ctx.beginPath();ctx.arc((x+.5)*CELL,(y+.5)*CELL,2,0,7);ctx.fill();});}
+  if(MG.gx!=null){ctx.fillStyle='#ff5a5a';ctx.beginPath();ctx.arc((MG.gx+.5)*CELL,(MG.gy+.5)*CELL,CELL*.4,0,7);ctx.fill();}
+  if(MG.px!=null){ctx.fillStyle='#ffcf33';ctx.beginPath();ctx.arc((MG.px+.5)*CELL,(MG.py+.5)*CELL,CELL*.42,0.25*Math.PI,1.75*Math.PI);ctx.lineTo((MG.px+.5)*CELL,(MG.py+.5)*CELL);ctx.fill();}
+}
+function endMini(caught){
+  MG.run=false; document.getElementById('mgb').textContent=caught?'ゴーストに捕まった！ 再挑戦':'もう一度';
+  const a=MG.actions;
+  if(a.length<30){document.getElementById('mgnote').style.display='';document.getElementById('mgnote').textContent='プレイが短すぎ（30ティック未満）。もう少し動いてみて。';return;}
+  // build the 11-dim mspacman feature vector, identical to load_atari
+  const hist=ATARI_ACTS.map(k=>a.filter(x=>x===k).length/a.length);
+  let sw=0;for(let i=1;i<a.length;i++)if(a[i]!==a[i-1])sw++; sw/=(a.length-1);
+  const pos=hist.filter(x=>x>0);
+  const ent=-pos.reduce((s,p)=>s+p*Math.log(p),0)/Math.log(ATARI_ACTS.length);
+  const vec=[...hist,sw,ent];
+  const d=state.data['mspacman'];
+  const xz=stdz(vec,d); const nb=knn(xz,d);
+  const z1=nb.reduce((s,p)=>s+p.z1p,0)/nb.length;
+  const sk=nb.reduce((s,p)=>s+p.skill,0)/nb.length;
+  document.getElementById('mgz').textContent=Math.round(z1);
+  document.getElementById('mgf').style.width=z1+'%';document.getElementById('mgm').style.left=z1+'%';
+  const tips=advise(xz,d);
+  document.getElementById('mgtips').innerHTML=tips.map(t=>`<span class="tip ${t.up?'up':'dn'}">${t.up?'▲':'▼'} ${t.name}を${t.up?'増やす':'減らす'}</span>`).join('')||'<span class="tip">上位層と近い動き</span>';
+  document.getElementById('mgnbr').innerHTML=`近い実プレイヤー ${nb.length}人：スコア <b>${Math.round(sk)}</b>（近傍平均）／あなたのドット ${MG.score}`;
+  const note=document.getElementById('mgnote');note.style.display='';
+  note.innerHTML='この採点は<b>実際のMs.パックマン実プレイヤー382人</b>に照らしたもの。動きが単調（静止が多い・方向が偏る）だと下位、活発で多彩だと上位に寄る。';
+}
+boot();
+</script>
+</body></html>
