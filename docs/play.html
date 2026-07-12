@@ -189,20 +189,38 @@ function recompute(picked){
 const ATARI_ACTS=[0,2,3,4,5,6,7,8,9]; // NOOP,UP,RIGHT,LEFT,DOWN,UR,UL,DR,DL
 function miniHTML(){return `<div class="mini">
   <h2 style="border-left-color:#c2410c;font-size:1.1rem">実際に遊んで採点（Ms.パックマン型）</h2>
-  <p class="sub"><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd>（同時押しで斜め）で動いてドットを集める。約30秒プレイすると、<b>あなたの動き方から学習データと同じ11特徴</b>を作り、実プレイヤーに照らして採点する。ゴーストに触れると終了。</p>
+  <p class="sub"><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd>（同時押しで斜め）で動いてドットを集める。約30秒プレイすると、<b>あなたの動き方から学習データと同じ11特徴</b>を作り、実プレイヤーに照らして採点する。ゴーストに触れると終了。<b>プレイ中は右側に「今の打ち方」のライブ・コーチ</b>が出る（直近5秒のスタイルを強い層と比較）。</p>
   <div class="row">
     <div><canvas id="mg" width="380" height="380"></canvas>
       <div class="mono" style="margin-top:.4rem">残り <b id="mgt">30.0</b>s ／ スコア <b id="mgs">0</b> ／ <button class="btn" id="mgb">スタート</button></div>
     </div>
-    <div><div class="sub">プレイ結果の採点：</div>
-      <div><span class="score" id="mgz">–</span><span class="sub"> パーセンタイル</span></div>
-      <div class="gauge"><i id="mgf"></i><span id="mgm"></span></div>
-      <div class="tips" id="mgtips"></div>
-      <div class="nbr" id="mgnbr"></div>
+    <div>
+      <div id="mglive" style="display:none">
+        <div class="sub">ライブ・コーチ</div>
+        <div><span class="score" id="mglz" style="font-size:1.5rem">–</span><span class="sub"> パーセンタイル（暫定・ここまでの累積）</span></div>
+        <div class="gauge"><i id="mglf"></i><span id="mglm"></span></div>
+        <div class="tips" id="mgltips"></div>
+        <div class="sub" style="font-size:.82rem;margin-top:.3rem"><b>今すべきこと</b>（直近5秒の動きを強い層と比較、tercile方向・データ由来）。ルートは示さない——データに状態→手のポリシーが無いため。</div>
+      </div>
+      <div id="mgresult">
+        <div class="sub">プレイ結果の採点：</div>
+        <div><span class="score" id="mgz">–</span><span class="sub"> パーセンタイル</span></div>
+        <div class="gauge"><i id="mgf"></i><span id="mgm"></span></div>
+        <div class="tips" id="mgtips"></div>
+        <div class="nbr" id="mgnbr"></div>
+      </div>
       <div class="note" id="mgnote" style="display:none"></div>
     </div>
   </div></div>`;}
 
+// 11-dim mspacman feature vector from an action array — identical to load_atari/_atari_episode
+function mgFeat(a){
+  const hist=ATARI_ACTS.map(k=>a.filter(x=>x===k).length/a.length);
+  let sw=0;for(let i=1;i<a.length;i++)if(a[i]!==a[i-1])sw++; sw/=Math.max(a.length-1,1);
+  const pos=hist.filter(x=>x>0);
+  const ent=-pos.reduce((s,p)=>s+p*Math.log(p),0)/Math.log(ATARI_ACTS.length);
+  return [...hist,sw,ent];
+}
 let MG=null;
 function initMini(){
   const cv=document.getElementById('mg'); if(!cv)return;
@@ -220,10 +238,33 @@ function startMini(){
   const N=MG.N;
   MG.px=1;MG.py=1; MG.gx=N-2;MG.gy=N-2;
   MG.dots=newDots(N); MG.dots.delete('1,1');
-  MG.actions=[]; MG.t=30.0; MG.score=0; MG.run=true; MG.last=null; MG.acc=0;
+  MG.actions=[]; MG.t=30.0; MG.score=0; MG.run=true; MG.last=null; MG.acc=0; MG.idle=0;
   document.getElementById('mgb').textContent='プレイ中…';
+  document.getElementById('mgresult').style.display='none';
+  document.getElementById('mgnote').style.display='none';
+  const live=document.getElementById('mglive'); live.style.display=''; document.getElementById('mgltips').innerHTML='';
+  document.getElementById('mglz').textContent='–'; document.getElementById('mglf').style.width='0%';
   MG.prev=performance.now();
   requestAnimationFrame(loopMini);
+}
+// Live style-coach: score the RECENT window (trailing 5 s) against real players, show
+// the tercile direction toward the strong-player norm — 100% data-grounded, no route/policy.
+const COACH_WIN=150; // 5 s at 30 Hz — recent-behaviour window for the reactive advice
+function updateCoach(){
+  const d=state.data['mspacman'];
+  if(MG.actions.length<20)return;
+  // SCORE = cumulative play so far (stable, converges to the final score) — a short
+  // window is too noisy for a percentile. ADVICE = trailing window (reactive to NOW).
+  const xzAll=stdz(mgFeat(MG.actions),d); const nb=knn(xzAll,d);
+  const z1=nb.reduce((s,p)=>s+p.z1p,0)/nb.length;
+  document.getElementById('mglz').textContent=Math.round(z1);
+  document.getElementById('mglf').style.width=z1+'%'; document.getElementById('mglm').style.left=z1+'%';
+  const win=MG.actions.slice(-COACH_WIN);
+  const tips=advise(stdz(mgFeat(win),d),d);
+  document.getElementById('mgltips').innerHTML = tips.length
+    ? tips.map(t=>`<span class="tip ${t.up?'up':'dn'}">${t.up?'▲':'▼'} ${t.name}を${t.up?'増やす':'減らす'}</span>`).join('')
+    : '<span class="tip up">いい調子！ 強い層に近い動き</span>';
+  MG.idle = win.slice(-30).filter(x=>x===0).length/Math.min(win.length,30); // recent NOOP share
 }
 function actionCode(keys){
   const up=keys.ArrowUp, dn=keys.ArrowDown, lf=keys.ArrowLeft, rt=keys.ArrowRight;
@@ -256,6 +297,7 @@ function loopMini(now){
       if(MG.gy<MG.py)MG.gy++; else if(MG.gy>MG.py)MG.gy--;
     }
     if(MG.gx===MG.px&&MG.gy===MG.py){endMini(true);return;}
+    if(MG.stepN%15===0)updateCoach(); // refresh the live coach ~2x/sec
   }
   document.getElementById('mgt').textContent=Math.max(0,MG.t).toFixed(1);
   document.getElementById('mgs').textContent=MG.score;
@@ -268,20 +310,20 @@ function drawMini(){
   ctx.fillStyle='#0b0b1a';ctx.fillRect(0,0,cv.width,cv.height);
   if(MG.dots){ctx.fillStyle='#ffd76a';MG.dots.forEach(k=>{const[x,y]=k.split(',').map(Number);ctx.beginPath();ctx.arc((x+.5)*CELL,(y+.5)*CELL,2,0,7);ctx.fill();});}
   if(MG.gx!=null){ctx.fillStyle='#ff5a5a';ctx.beginPath();ctx.arc((MG.gx+.5)*CELL,(MG.gy+.5)*CELL,CELL*.4,0,7);ctx.fill();}
-  if(MG.px!=null){ctx.fillStyle='#ffcf33';ctx.beginPath();ctx.arc((MG.px+.5)*CELL,(MG.py+.5)*CELL,CELL*.42,0.25*Math.PI,1.75*Math.PI);ctx.lineTo((MG.px+.5)*CELL,(MG.py+.5)*CELL);ctx.fill();}
+  if(MG.px!=null){ctx.fillStyle='#ffcf33';ctx.beginPath();ctx.arc((MG.px+.5)*CELL,(MG.py+.5)*CELL,CELL*.42,0.25*Math.PI,1.75*Math.PI);ctx.lineTo((MG.px+.5)*CELL,(MG.py+.5)*CELL);ctx.fill();
+    // subtle idle cue: ring + nudge when recently too static (data says ▼NOOP raises skill)
+    if(MG.run&&MG.idle>0.6){ctx.strokeStyle='rgba(217,119,87,.9)';ctx.lineWidth=2;ctx.beginPath();ctx.arc((MG.px+.5)*CELL,(MG.py+.5)*CELL,CELL*.7,0,7);ctx.stroke();
+      ctx.fillStyle='rgba(217,119,87,.95)';ctx.font='bold 12px sans-serif';ctx.fillText('動こう',(MG.px+.5)*CELL-15,(MG.py-.4)*CELL);}
+  }
 }
 function endMini(caught){
   MG.run=false; document.getElementById('mgb').textContent=caught?'ゴーストに捕まった！ 再挑戦':'もう一度';
+  document.getElementById('mglive').style.display='none';
   const a=MG.actions;
   if(a.length<30){document.getElementById('mgnote').style.display='';document.getElementById('mgnote').textContent='プレイが短すぎ（30ティック未満）。もう少し動いてみて。';return;}
-  // build the 11-dim mspacman feature vector, identical to load_atari
-  const hist=ATARI_ACTS.map(k=>a.filter(x=>x===k).length/a.length);
-  let sw=0;for(let i=1;i<a.length;i++)if(a[i]!==a[i-1])sw++; sw/=(a.length-1);
-  const pos=hist.filter(x=>x>0);
-  const ent=-pos.reduce((s,p)=>s+p*Math.log(p),0)/Math.log(ATARI_ACTS.length);
-  const vec=[...hist,sw,ent];
+  document.getElementById('mgresult').style.display='';
   const d=state.data['mspacman'];
-  const xz=stdz(vec,d); const nb=knn(xz,d);
+  const xz=stdz(mgFeat(a),d); const nb=knn(xz,d);
   const z1=nb.reduce((s,p)=>s+p.z1p,0)/nb.length;
   const sk=nb.reduce((s,p)=>s+p.skill,0)/nb.length;
   document.getElementById('mgz').textContent=Math.round(z1);
