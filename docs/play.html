@@ -283,6 +283,36 @@ const PLAY={
      const aimX = danger ? (g.px<=1? g.px+1 : g.px-1) : tgt.x;
      return {from:[g.px,g.py],cells:[[aimX,g.py]],target:[tgt.x,tgt.y],danger:!!danger};},
  },
+ overcooked:{
+   title:'Overcooked型', scoreLabel:'調理', idleName:'動こう', N:13,
+   help:'<kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd>で移動、<kbd>Space</kbd>/<kbd>X</kbd>で INTERACT。材料→鍋→皿→提供の順に各ステーションで INTERACT。テキパキ動くほど高評価。',
+   routeLabel:'次に INTERACT すべきステーションへの最短経路',
+   note:'静止が多いと下位、こまめに動いて INTERACT すると上位に寄る（協力ゲームなので実データは n=172 と小さめ）。',
+   feat:a=>histFeat([0,1,2,3,4,5],a,true), // stay,up,down,left,right,INTERACT ; entropy /log(nonzero)
+   action(k){const g=MG.g; const press=k.fire||k.interact;
+     if(press&&!g._iprev){g._iprev=true;return 5;}            // edge-triggered INTERACT (discrete press)
+     if(!press)g._iprev=false;
+     if(k.up)return 1;if(k.down)return 2;if(k.left)return 3;if(k.right)return 4;return 0;},
+   init(g,N){g.px=(N>>1);g.py=(N>>1);g.stage=0;g._iprev=false;
+     g.st=[[2,2,'材','#6bbf59'],[N-3,2,'鍋','#e08a3c'],[2,N-3,'皿','#4a90d9'],[N-3,N-3,'出','#d9534f']];},
+   step(g,a,N){g.stepN=(g.stepN||0)+1;
+     if(g.stepN%3===0){if(a===1)g.py=Math.max(1,g.py-1);if(a===2)g.py=Math.min(N-2,g.py+1);
+       if(a===3)g.px=Math.max(1,g.px-1);if(a===4)g.px=Math.min(N-2,g.px+1);}
+     if(a===5){const t=g.st[g.stage];if(Math.abs(g.px-t[0])<=1&&Math.abs(g.py-t[1])<=1){
+       g.stage++;g.score+=10;if(g.stage>=4){g.stage=0;g.score+=20;}}}
+     return null;},
+   draw(ctx,g,CELL,N){
+     g.st.forEach((s,i)=>{ctx.fillStyle=s[3];ctx.globalAlpha=(i===g.stage)?1:.4;
+       ctx.fillRect((s[0]+.1)*CELL,(s[1]+.1)*CELL,CELL*.8,CELL*.8);ctx.globalAlpha=1;
+       ctx.fillStyle='#fff';ctx.font='bold 12px sans-serif';ctx.fillText(s[2],(s[0]+.28)*CELL,(s[1]+.68)*CELL);});
+     ctx.fillStyle='#ffcf33';ctx.beginPath();ctx.arc((g.px+.5)*CELL,(g.py+.5)*CELL,CELL*.38,0,7);ctx.fill();
+     ctx.strokeStyle='#b06a1f';ctx.lineWidth=2;ctx.stroke();},
+   route(g,N){const t=g.st[g.stage];const cells=[];let x=g.px,y=g.py;
+     for(let i=0;i<20&&(x!==t[0]||y!==t[1]);i++){
+       if(Math.abs(t[0]-x)>=Math.abs(t[1]-y))x+=Math.sign(t[0]-x);else y+=Math.sign(t[1]-y);
+       cells.push([x,y]);}
+     return {from:[g.px,g.py],cells,target:[t[0],t[1]]};},
+ },
 };
 
 let MG=null;
