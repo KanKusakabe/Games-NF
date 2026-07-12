@@ -1,0 +1,216 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Games-NF — 潜在でゲームを繋ぐ（パックマン↔インベーダー）</title><style>
+body{font:16px/1.75 -apple-system,"Hiragino Sans","Noto Sans JP",sans-serif;max-width:980px;margin:0 auto;padding:2rem 1rem;color:#222;background:#fff}
+h1{line-height:1.35;margin:.2rem 0}.sub{color:#666}a{color:#c2410c}
+.crumb{font-size:.9rem;margin-bottom:1rem}
+.lead{background:#f7f5f2;border-radius:12px;padding:1rem 1.2rem}
+h2{border-left:5px solid #d97757;padding-left:.6rem}
+code{background:#f0eee9;padding:.1rem .3rem;border-radius:4px}
+.btn{padding:.45rem .9rem;border-radius:8px;border:1px solid #d97757;background:#fff;color:#c2410c;cursor:pointer;font-size:.92rem}
+.btn:hover{background:#fdeee6}.btn.on{background:#c2410c;color:#fff}
+canvas{background:#0b0b1a;border-radius:10px;display:block;max-width:100%;touch-action:none}
+.stage{display:grid;grid-template-columns:1fr auto 1fr;gap:1rem;align-items:start;margin:1rem 0}
+@media(max-width:760px){.stage{grid-template-columns:1fr}}
+.pane{border:1px solid #e5e5e5;border-radius:12px;padding:.7rem .8rem;background:#fff}
+.pane h3{margin:.1rem 0 .4rem;font-size:1rem}
+.tag{font-size:.75rem;padding:.1rem .5rem;border-radius:999px;border:1px solid #e5e5e5;background:#f0eee9}
+.tag.you{background:#eaf5ec;border-color:#bfe0c6}.tag.echo{background:#eaf3fb;border-color:#bcd8f0}
+.bar{position:relative;height:9px;background:#eee;border-radius:5px;margin:.3rem 0}
+.bar>i{position:absolute;top:0;bottom:0;left:0;background:linear-gradient(90deg,#f3cbb2,#c2410c);border-radius:5px}
+.mid{min-width:180px}
+.mono{font-variant-numeric:tabular-nums}
+.note{background:#faf8f5;border-left:3px solid #d97757;padding:.5rem .8rem;border-radius:0 8px 8px 0;font-size:.9rem;margin-top:.7rem}
+kbd{background:#f0eee9;border:1px solid #ccc;border-bottom-width:2px;border-radius:4px;padding:0 .35rem;font-size:.85rem}
+.lat{font-size:.85rem;margin:.2rem 0}
+</style></head><body>
+<div class="crumb"><a href="play.html">&larr; 触って体験へ</a> ／ <a href="index.html">Games-NF 結果</a> ／ <a href="https://kankusakabe.github.io/KAN-NF/">KAN-NF 統括</a></div>
+<h1>潜在でゲームを繋ぐ — パックマン ↔ インベーダー</h1>
+<p class="sub">同じ基底（ガウス＋直線技量軸）で学習したので、両ゲームは<b>共通のスタイル潜在</b>
+<code>[多様性・集中・切替・技量]</code>を持つ。片方を遊ぶと、その潜在を<b>もう片方のゲームに映して自動プレイ（エコー）</b>する。</p>
+<p class="lead"><b>やっていること</b>：あなたのプレイから共通潜在を測り、<b>ゲーム内パーセンタイル</b>（＝潜在座標）に変換。
+もう片方で<b>同じ座標にいる実プレイヤー</b>を探し、その<b>行動分布</b>でエコー側を動かす。だから
+「あなたの<b>打ち回しの質</b>（探索性・切替・技量）」が隣のゲームに伝わる。
+<b>正直な但し書き</b>：伝わるのは<b>スタイル/技量の分布</b>で、ボタンの<b>逐次操作そのもの</b>ではない（この潜在は集約分布を符号化していて、操作系列は持たない）。エコーのお手本は<b>実在プレイヤー</b>＝100%実データ由来。</p>
+
+<div style="margin:1rem 0">
+  <b>向き：</b>
+  <button class="btn on" id="dirA" onclick="setDir('pac2si')">あなた＝パックマン → インベーダーがエコー</button>
+  <button class="btn" id="dirB" onclick="setDir('si2pac')">あなた＝インベーダー → パックマンがエコー</button>
+  <button class="btn" id="startBtn" onclick="startBridge()" style="margin-left:.5rem">スタート</button>
+</div>
+
+<div class="stage">
+  <div class="pane">
+    <h3 id="hA">あなた <span class="tag you">操作</span></h3>
+    <canvas id="cvA" width="300" height="300"></canvas>
+    <div class="mono sub" style="margin-top:.3rem">スコア <b id="scA">0</b></div>
+    <div class="sub" id="ctrlA" style="font-size:.84rem"></div>
+  </div>
+  <div class="mid pane">
+    <h3>共通潜在</h3>
+    <div class="sub" style="font-size:.82rem">あなたのゲーム内パーセンタイル（潜在座標）</div>
+    <div class="lat">多様性 <b id="pE">–</b><div class="bar"><i id="bE"></i></div></div>
+    <div class="lat">集中(最頻) <b id="pT">–</b><div class="bar"><i id="bT"></i></div></div>
+    <div class="lat">切替 <b id="pS">–</b><div class="bar"><i id="bS"></i></div></div>
+    <div class="lat">技量 z₁ <b id="pZ">–</b><div class="bar"><i id="bZ"></i></div></div>
+    <div class="sub" style="font-size:.82rem;margin-top:.5rem" id="echoInfo">エコー先：—</div>
+  </div>
+  <div class="pane">
+    <h3 id="hB">エコー <span class="tag echo">自動</span></h3>
+    <canvas id="cvB" width="300" height="300"></canvas>
+    <div class="mono sub" style="margin-top:.3rem">スコア <b id="scB">0</b></div>
+    <div class="sub" style="font-size:.84rem">あなたの潜在に一致する実プレイヤーの行動分布で自動プレイ</div>
+  </div>
+</div>
+<div class="note">エコー側は<b>「同じ潜在座標にいる実プレイヤーの行動分布＋切替率」</b>から確率的に行動を生成して動く（マルコフ的サンプラ）。
+潜在は約1秒ごとに再計算し、あなたのプレイの変化に追従する。<b>これは操作の鏡写しではなく、スタイル分布の転写</b>——
+同じ「探索性・切替・技量」を相手ゲームの操作系で表現している。</div>
+<p class="sub" style="margin-top:1rem"><code>[多様性=エントロピー, 集中=最頻行動シェア, 切替=方向切替率, 技量=z₁]</code> の共通潜在。
+両ゲームで各軸と技量の相関は同符号（多様性↑・集中↓・切替↑→上手）と確認済み。データは <code>docs/app_data/*.json</code>。</p>
+
+<script>
+const KEYS={pac:'mspacman',si:'spaceinvaders'};
+const ACTS={pac:[0,2,3,4,5,6,7,8,9], si:[0,1,2,3,4,5]};
+const D={}, G={}; let BR=null, DIR='pac2si';
+
+async function boot(){
+  for(const k of ['pac','si']){
+    D[k]=await fetch(`app_data/${KEYS[k]}.json`).then(r=>r.json());
+    buildPlayers(k);
+  }
+  drawIdle();
+}
+function buildPlayers(k){
+  const d=D[k], A=ACTS[k].length, mu=d.mu, sd=d.sd;
+  const pl=d.players.map(p=>{const raw=p.fs.map((z,j)=>z*sd[j]+mu[j]);
+    const hist=raw.slice(0,A); let s=0;for(const h of hist)s+=Math.max(h,0);
+    const nh=hist.map(h=>Math.max(h,0)/(s||1));
+    return {hist:nh, switch:raw[A], ent:raw[A+1], top1:Math.max(...hist), z1p:p.z1p, skill:p.skill};});
+  // sorted arrays for within-game percentile
+  const col=f=>pl.map(f).sort((a,b)=>a-b);
+  G[k]={A, players:pl, sE:col(p=>p.ent), sT:col(p=>p.top1), sS:col(p=>p.switch), sZ:col(p=>p.z1p)};
+  // precompute each player's percentile vector (for echo matching)
+  G[k].pv=pl.map(p=>[pct(p.ent,G[k].sE),pct(p.top1,G[k].sT),pct(p.switch,G[k].sS),pct(p.z1p,G[k].sZ)]);
+}
+function pct(v,sorted){let lo=0,hi=sorted.length;while(lo<hi){const m=(lo+hi)>>1;if(sorted[m]<=v)lo=m+1;else hi=m;}return 100*lo/sorted.length;}
+
+// --- feature + z1 (same as play.html) ---
+function histFeat(acts,a){const hist=acts.map(k=>a.filter(x=>x===k).length/a.length);
+  let sw=0;for(let i=1;i<a.length;i++)if(a[i]!==a[i-1])sw++;sw/=Math.max(a.length-1,1);
+  const pos=hist.filter(x=>x>0);const ent=pos.length>1?-pos.reduce((s,p)=>s+p*Math.log(p),0)/Math.log(acts.length):0;
+  return [...hist,sw,ent];}
+function z1of(k,actions){const d=D[k],mu=d.mu,sd=d.sd;const f=histFeat(ACTS[k],actions);
+  const xz=f.map((v,j)=>(v-mu[j])/sd[j]);
+  const arr=d.players.map(p=>{let s=0;for(let j=0;j<xz.length;j++){const e=xz[j]-p.fs[j];s+=e*e;}return{p,s};});
+  arr.sort((a,b)=>a.s-b.s);const nb=arr.slice(0,25);
+  return nb.reduce((s,o)=>s+o.p.z1p,0)/nb.length;}
+
+// user latent (percentiles) from their action stream in game `k`
+function latentPct(k,actions){
+  const acts=ACTS[k],hist=acts.map(c=>actions.filter(x=>x===c).length/actions.length);
+  const f=histFeat(acts,actions);const ent=f[f.length-1],sw=f[f.length-2],top1=Math.max(...hist);
+  const z1=z1of(k,actions);
+  return {vec:[pct(ent,G[k].sE),pct(top1,G[k].sT),pct(sw,G[k].sS),pct(z1,G[k].sZ)], z1};
+}
+// map user's latent percentiles to a target profile in game `tk` (kNN over percentile vecs)
+function echoTarget(tk,pctVec){
+  const g=G[tk];const arr=g.pv.map((pv,i)=>{let s=0;for(let j=0;j<4;j++){const e=pv[j]-pctVec[j];s+=e*e;}return{i,s};});
+  arr.sort((a,b)=>a.s-b.s);const nb=arr.slice(0,15).map(o=>g.players[o.i]);
+  const A=g.A,hist=new Array(A).fill(0);let sw=0,sk=0,z1=0;
+  nb.forEach(p=>{p.hist.forEach((h,j)=>hist[j]+=h/nb.length);sw+=p.switch/nb.length;sk+=p.skill/nb.length;z1+=p.z1p/nb.length;});
+  return {hist,switch:sw,skill:sk,z1p:z1};
+}
+function sampleEcho(prev,tgt,acts){ // markov sampler matching target hist + switch
+  if(prev===null||Math.random()<Math.min(0.9,tgt.switch*3+0.02)){
+    let r=Math.random(),c=0;for(let i=0;i<acts.length;i++){c+=tgt.hist[i];if(r<=c)return acts[i];}
+    return acts[0];
+  }
+  return prev;
+}
+
+// ===== compact game logic (ports of play.html, endless) =====
+function newDots(N){const s=new Set();for(let y=1;y<N-1;y++)for(let x=1;x<N-1;x++)s.add(x+','+y);return s;}
+const GAME={
+ pac:{N:19,
+   init(g){g.px=1;g.py=1;g.gx=18;g.gy=18;g.dots=newDots(19);g.dots.delete('1,1');g.score=0;g.n=0;},
+   action(k){const u=k.up,d=k.down,l=k.left,r=k.right;if(u&&r)return 6;if(u&&l)return 7;if(d&&r)return 8;if(d&&l)return 9;if(u)return 2;if(r)return 3;if(l)return 4;if(d)return 5;return 0;},
+   step(g,a){g.n++;const N=19;
+     if(g.n%4===0){let nx=g.px,ny=g.py;if(a===2||a===6||a===7)ny--;if(a===5||a===8||a===9)ny++;if(a===3||a===6||a===8)nx++;if(a===4||a===7||a===9)nx--;
+       g.px=Math.max(1,Math.min(N-2,nx));g.py=Math.max(1,Math.min(N-2,ny));const key=g.px+','+g.py;if(g.dots.has(key)){g.dots.delete(key);g.score+=10;}if(!g.dots.size)g.dots=newDots(N);}
+     if(g.n%8===0){if(g.gx<g.px)g.gx++;else if(g.gx>g.px)g.gx--;if(g.gy<g.py)g.gy++;else if(g.gy>g.py)g.gy--;}
+     if(g.gx===g.px&&g.gy===g.py){g.px=1;g.py=1;g.gx=18;g.gy=18;}}, // respawn, endless
+   draw(ctx,g,C){const N=19;ctx.fillStyle='#ffd76a';g.dots.forEach(k=>{const[x,y]=k.split(',').map(Number);ctx.beginPath();ctx.arc((x+.5)*C,(y+.5)*C,1.6,0,7);ctx.fill();});
+     ctx.fillStyle='#ff5a5a';ctx.beginPath();ctx.arc((g.gx+.5)*C,(g.gy+.5)*C,C*.4,0,7);ctx.fill();
+     ctx.fillStyle='#ffcf33';ctx.beginPath();ctx.arc((g.px+.5)*C,(g.py+.5)*C,C*.42,.25*Math.PI,1.75*Math.PI);ctx.lineTo((g.px+.5)*C,(g.py+.5)*C);ctx.fill();}},
+ si:{N:19,
+   init(g){g.px=9;g.py=17;g.bul=[];g.bomb=[];g.inv=[];for(let r=1;r<=4;r++)for(let c=2;c<=16;c+=2)g.inv.push({x:c,y:r,a:true});g.idir=1;g.lastFire=-99;g.score=0;g.n=0;},
+   action(k){if(k.fire)return 1;if(k.left)return 4;if(k.right)return 3;if(k.up)return 2;if(k.down)return 5;return 0;},
+   step(g,a){g.n++;const N=19;
+     if(g.n%3===0){if(a===4)g.px=Math.max(1,g.px-1);if(a===3)g.px=Math.min(N-2,g.px+1);}
+     if(a===1&&g.n-g.lastFire>6){g.bul.push({x:g.px,y:g.py-1});g.lastFire=g.n;}
+     if(g.n%2===0){g.bul.forEach(b=>b.y--);g.bul.forEach(b=>{const h=g.inv.find(v=>v.a&&v.x===b.x&&v.y===b.y);if(h){h.a=false;b.y=-9;g.score+=20;}});g.bul=g.bul.filter(b=>b.y>=0);
+       g.bomb.forEach(b=>b.y++);for(const b of g.bomb){if(b.x===g.px&&b.y>=g.py){g.px=9;}}g.bomb=g.bomb.filter(b=>b.y<N-1);}
+     if(g.n%12===0){const alive=g.inv.filter(v=>v.a);if(!alive.length){g.inv.forEach(v=>{v.a=true;v.y=Math.max(1,v.y-3);});}
+       const xs=g.inv.filter(v=>v.a).map(v=>v.x),mn=Math.min(...xs),mx=Math.max(...xs);
+       if((g.idir>0&&mx>=N-2)||(g.idir<0&&mn<=1)){g.inv.forEach(v=>v.y++);g.idir*=-1;}else g.inv.forEach(v=>v.x+=g.idir);
+       const al=g.inv.filter(v=>v.a),drop=al[(g.n>>2)%al.length];if(drop)g.bomb.push({x:drop.x,y:drop.y+1});
+       for(const v of g.inv)if(v.a&&v.y>=g.py){g.inv.forEach(w=>{w.y=Math.max(1,w.y-4);});}}},
+   draw(ctx,g,C){ctx.fillStyle='#7CFC7C';g.inv.forEach(v=>{if(v.a)ctx.fillRect((v.x+.2)*C,(v.y+.25)*C,C*.6,C*.5);});
+     ctx.fillStyle='#fff';g.bul.forEach(b=>ctx.fillRect((b.x+.42)*C,(b.y+.1)*C,C*.16,C*.6));
+     ctx.fillStyle='#ff5a5a';g.bomb.forEach(b=>{ctx.beginPath();ctx.arc((b.x+.5)*C,(b.y+.5)*C,C*.22,0,7);ctx.fill();});
+     ctx.fillStyle='#ffcf33';ctx.beginPath();ctx.moveTo((g.px+.5)*C,(g.py+.1)*C);ctx.lineTo((g.px+.9)*C,(g.py+.9)*C);ctx.lineTo((g.px+.1)*C,(g.py+.9)*C);ctx.closePath();ctx.fill();}}
+};
+
+function youKey(){return DIR==='pac2si'?'pac':'si';}
+function echoKey(){return DIR==='pac2si'?'si':'pac';}
+function setDir(d){DIR=d;document.getElementById('dirA').classList.toggle('on',d==='pac2si');document.getElementById('dirB').classList.toggle('on',d==='si2pac');
+  if(BR)BR.run=false; drawIdle();}
+function drawIdle(){
+  const yk=youKey(),ek=echoKey();
+  document.getElementById('hA').innerHTML=`あなた（${yk==='pac'?'パックマン':'インベーダー'}）<span class="tag you">操作</span>`;
+  document.getElementById('hB').innerHTML=`エコー（${ek==='pac'?'パックマン':'インベーダー'}）<span class="tag echo">自動</span>`;
+  document.getElementById('ctrlA').innerHTML= yk==='pac'
+    ? '<kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd>（斜めは同時押し）'
+    : '<kbd>←</kbd><kbd>→</kbd>移動・<kbd>Space</kbd>射撃';
+  for(const [cid,key] of [['cvA',yk],['cvB',ek]]){const cv=document.getElementById(cid),ctx=cv.getContext('2d');ctx.fillStyle='#0b0b1a';ctx.fillRect(0,0,cv.width,cv.height);}
+}
+const KMAP={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',' ':'fire'};
+function startBridge(){
+  const yk=youKey(),ek=echoKey();
+  const keys={};window.onkeydown=e=>{const m=KMAP[e.key];if(m){keys[m]=1;e.preventDefault();}};window.onkeyup=e=>{const m=KMAP[e.key];if(m){keys[m]=0;e.preventDefault();}};
+  BR={yk,ek,keys,you:{g:{}},echo:{g:{}},actions:[],echoPrev:null,tgt:null,run:true,acc:0,n:0,prev:performance.now(),
+      cvA:document.getElementById('cvA'),cvB:document.getElementById('cvB')};
+  BR.CA=BR.cvA.width/GAME[yk].N; BR.CB=BR.cvB.width/GAME[ek].N;
+  GAME[yk].init(BR.you.g); GAME[ek].init(BR.echo.g);
+  // seed target from median latent
+  BR.tgt=echoTarget(ek,[50,50,50,50]);
+  document.getElementById('startBtn').textContent='リセット';
+  requestAnimationFrame(loop);
+}
+function loop(now){
+  if(!BR||!BR.run)return;
+  const dt=(now-BR.prev)/1000;BR.prev=now;BR.acc+=dt;const STEP=1/30;
+  const yk=BR.yk,ek=BR.ek;
+  while(BR.acc>=STEP){BR.acc-=STEP;BR.n++;
+    const ua=GAME[yk].action(BR.keys);BR.actions.push(ua);GAME[yk].step(BR.you.g,ua);
+    if(BR.actions.length>900)BR.actions.shift();
+    const ea=sampleEcho(BR.echoPrev,BR.tgt,ACTS[ek]);BR.echoPrev=ea;GAME[ek].step(BR.echo.g,ea);
+    if(BR.n%30===0&&BR.actions.length>=20){ // recompute latent -> remap echo target ~1/s
+      const L=latentPct(yk,BR.actions.slice(-300));BR.lat=L;BR.tgt=echoTarget(ek,L.vec);updatePanel(L);
+    }
+  }
+  const ca=BR.cvA.getContext('2d');ca.fillStyle='#0b0b1a';ca.fillRect(0,0,BR.cvA.width,BR.cvA.height);GAME[yk].draw(ca,BR.you.g,BR.CA);
+  const cb=BR.cvB.getContext('2d');cb.fillStyle='#0b0b1a';cb.fillRect(0,0,BR.cvB.width,BR.cvB.height);GAME[ek].draw(cb,BR.echo.g,BR.CB);
+  document.getElementById('scA').textContent=BR.you.g.score;
+  document.getElementById('scB').textContent=BR.echo.g.score;
+  requestAnimationFrame(loop);
+}
+function updatePanel(L){
+  const ids=['E','T','S','Z'];L.vec.forEach((v,i)=>{document.getElementById('p'+ids[i]).textContent=Math.round(v);document.getElementById('b'+ids[i]).style.width=v+'%';});
+  const ek=BR.ek,lbl=D[ek].label;
+  document.getElementById('echoInfo').innerHTML=`エコー先：${ek==='pac'?'パックマン':'インベーダー'}の実プレイヤー（${lbl} <b>${Math.round(BR.tgt.skill)}</b>・技量 z₁ ${Math.round(BR.tgt.z1p)}%tile 相当）`;
+}
+boot();
+</script>
+</body></html>
