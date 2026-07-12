@@ -116,7 +116,7 @@ function render(){
       <input type="range" id="s${f.idx}" min="${f.min}" max="${f.max}" step="${f.step}" value="${init}"
         oninput="onSlide(${f.idx},this.value)"></div>`;
   });
-  const mini = state.cur==='mspacman' ? miniHTML() : '';
+  const mini = PLAY[state.cur] ? miniHTML(state.cur) : '';
   p.innerHTML=`<div class="panel">
     <div class="row">
       <div>
@@ -142,7 +142,7 @@ function render(){
   // init slider display + score
   d.feats.forEach(f=>document.getElementById('v'+f.idx).textContent=(+ (state.sliders[state.cur]?.[f.idx] ?? f.med)).toFixed(3));
   recompute();
-  if(state.cur==='mspacman') initMini();
+  if(PLAY[state.cur]) initMini(state.cur);
 }
 
 function readVec(){
@@ -185,17 +185,116 @@ function recompute(picked){
     (picked?`<br>読込元プレイヤー：${d.label} <b>${picked.skill}</b>・実技量 ${Math.round(picked.sp)}%tile`:'');
 }
 
-/* ---------- Ms.パックマン ミニゲーム（学習データと同じ11次元を生成）---------- */
-const ATARI_ACTS=[0,2,3,4,5,6,7,8,9]; // NOOP,UP,RIGHT,LEFT,DOWN,UR,UL,DR,DL
-function miniHTML(){return `<div class="mini">
-  <h2 style="border-left-color:#c2410c;font-size:1.1rem">実際に遊んで採点（Ms.パックマン型）</h2>
-  <p class="sub"><kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd>（同時押しで斜め）で動いてドットを集める。約30秒プレイすると、<b>あなたの動き方から学習データと同じ11特徴</b>を作り、実プレイヤーに照らして採点する。ゴーストに触れると終了。<b>プレイ中は右側に「今の打ち方」のライブ・コーチ</b>が出る（直近5秒のスタイルを強い層と比較）。</p>
+/* ================= 遊べるミニゲーム（学習データと同じ特徴を生成→採点）=================
+ 各ゲームの play コントローラは Python ローダと同一の特徴ベクトルを生成するので kNN 採点が妥当。
+ ライブ・コーチ＝データ由来（tercile）／経路・次手ヒント＝参考ヒューリスティック（明記）。   */
+function histFeat(acts,a,entNonzero){
+  const hist=acts.map(k=>a.filter(x=>x===k).length/a.length);
+  let sw=0;for(let i=1;i<a.length;i++)if(a[i]!==a[i-1])sw++; sw/=Math.max(a.length-1,1);
+  const pos=hist.filter(x=>x>0);
+  const denom=Math.log(entNonzero?pos.length:acts.length);
+  const ent = pos.length>1 ? -pos.reduce((s,p)=>s+p*Math.log(p),0)/denom : 0;
+  return [...hist,sw,ent];
+}
+function newDots(N){const s=new Set();for(let y=1;y<N-1;y++)for(let x=1;x<N-1;x++)s.add(x+','+y);return s;}
+
+// ---- per-game play controllers (real-time movers share the same loop) ----
+const PLAY={
+ mspacman:{
+   title:'Ms.パックマン型', scoreLabel:'ドット', idleName:'動こう', N:19,
+   help:'<kbd>↑</kbd><kbd>↓</kbd><kbd>←</kbd><kbd>→</kbd>（同時押しで斜め）で動いてドットを集める。ゴーストに触れると終了。',
+   routeLabel:'最寄りドットへ向かいゴーストを避ける貪欲経路',
+   note:'動きが単調（静止が多い・方向が偏る）だと下位、活発で多彩だと上位に寄る。',
+   feat:a=>histFeat([0,2,3,4,5,6,7,8,9],a,false),
+   action(k){const u=k.up,d=k.down,l=k.left,r=k.right;
+     if(u&&r)return 6;if(u&&l)return 7;if(d&&r)return 8;if(d&&l)return 9;
+     if(u)return 2;if(r)return 3;if(l)return 4;if(d)return 5;return 0;},
+   init(g,N){g.px=1;g.py=1;g.gx=N-2;g.gy=N-2;g.dots=newDots(N);g.dots.delete('1,1');},
+   step(g,a,N){g.stepN=(g.stepN||0)+1;
+     if(g.stepN%4===0){let nx=g.px,ny=g.py;
+       if(a===2||a===6||a===7)ny--;if(a===5||a===8||a===9)ny++;
+       if(a===3||a===6||a===8)nx++;if(a===4||a===7||a===9)nx--;
+       nx=Math.max(1,Math.min(N-2,nx));ny=Math.max(1,Math.min(N-2,ny));g.px=nx;g.py=ny;
+       const key=g.px+','+g.py;if(g.dots.has(key)){g.dots.delete(key);g.score+=10;}}
+     if(g.stepN%8===0){if(g.gx<g.px)g.gx++;else if(g.gx>g.px)g.gx--;if(g.gy<g.py)g.gy++;else if(g.gy>g.py)g.gy--;}
+     return (g.gx===g.px&&g.gy===g.py)?'ゴーストに捕まった！ 再挑戦':null;},
+   draw(ctx,g,CELL,N){
+     if(g.dots){ctx.fillStyle='#ffd76a';g.dots.forEach(k=>{const[x,y]=k.split(',').map(Number);ctx.beginPath();ctx.arc((x+.5)*CELL,(y+.5)*CELL,2,0,7);ctx.fill();});}
+     if(g.gx!=null){ctx.fillStyle='#ff5a5a';ctx.beginPath();ctx.arc((g.gx+.5)*CELL,(g.gy+.5)*CELL,CELL*.4,0,7);ctx.fill();}
+     ctx.fillStyle='#ffcf33';ctx.beginPath();ctx.arc((g.px+.5)*CELL,(g.py+.5)*CELL,CELL*.42,0.25*Math.PI,1.75*Math.PI);ctx.lineTo((g.px+.5)*CELL,(g.py+.5)*CELL);ctx.fill();},
+   route(g,N){
+     if(!g.dots||!g.dots.size)return null;
+     let tgt=null,bc=1e9;
+     for(const k of g.dots){const[x,y]=k.split(',').map(Number);
+       const dd=Math.max(Math.abs(x-g.px),Math.abs(y-g.py)),dg=Math.max(Math.abs(x-g.gx),Math.abs(y-g.gy));
+       const cost=dd+(dg<3?(3-dg)*4:0);if(cost<bc){bc=cost;tgt=[x,y];}}
+     if(!tgt)return null;
+     const cells=[];let x=g.px,y=g.py;
+     for(let i=0;i<16&&(x!==tgt[0]||y!==tgt[1]);i++){let best=null,b=1e9;
+       for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++){if(!dx&&!dy)continue;
+         const nx=x+dx,ny=y+dy;if(nx<1||ny<1||nx>N-2||ny>N-2)continue;
+         const chase=Math.max(Math.abs(nx-g.gx),Math.abs(ny-g.gy));
+         const c=Math.max(Math.abs(nx-tgt[0]),Math.abs(ny-tgt[1]))+(chase<=1?10:0);
+         if(c<b){b=c;best=[nx,ny];}}
+       if(!best)break;x=best[0];y=best[1];cells.push([x,y]);}
+     return {from:[g.px,g.py],cells,target:tgt};},
+ },
+ spaceinvaders:{
+   title:'Space Invaders型', scoreLabel:'撃墜', idleName:'動こう/撃とう', N:19,
+   help:'<kbd>←</kbd><kbd>→</kbd>で左右移動、<kbd>Space</kbd>で射撃。侵略者を撃ち落とし、爆弾を避ける。侵略者に到達されると終了。',
+   routeLabel:'最寄りの侵略者の真下へ寄せる（撃ちやすい位置）＋落下弾を避ける',
+   note:'撃たず/動かず（静止が多い）だと下位、活発に動いて撃つと上位に寄る。',
+   feat:a=>histFeat([0,1,2,3,4,5],a,false), // NOOP,FIRE,UP,RIGHT,LEFT,DOWN
+   action(k){if(k.fire)return 1;if(k.left)return 4;if(k.right)return 3;if(k.up)return 2;if(k.down)return 5;return 0;},
+   init(g,N){g.px=(N>>1);g.py=N-2;g.bul=[];g.bomb=[];g.inv=[];
+     for(let r=1;r<=4;r++)for(let c=2;c<=N-3;c+=2)g.inv.push({x:c,y:r,a:true});
+     g.idir=1;g.lastFire=-99;},
+   step(g,a,N){g.stepN=(g.stepN||0)+1;
+     if(g.stepN%3===0){if(a===4)g.px=Math.max(1,g.px-1);if(a===3)g.px=Math.min(N-2,g.px+1);}
+     if(a===1&&g.stepN-g.lastFire>6){g.bul.push({x:g.px,y:g.py-1});g.lastFire=g.stepN;}
+     if(g.stepN%2===0){ // advance shots
+       g.bul.forEach(b=>b.y--);
+       g.bul.forEach(b=>{const h=g.inv.find(v=>v.a&&v.x===b.x&&v.y===b.y);if(h){h.a=false;b.y=-9;g.score+=20;}});
+       g.bul=g.bul.filter(b=>b.y>=0);
+       g.bomb.forEach(b=>b.y++);
+       for(const b of g.bomb){if(b.x===g.px&&b.y>=g.py)return '爆弾に当たった！ 再挑戦';}
+       g.bomb=g.bomb.filter(b=>b.y<N-1);
+     }
+     if(g.stepN%12===0){ // invaders shuffle + occasionally bomb
+       const xs=g.inv.filter(v=>v.a).map(v=>v.x);if(!xs.length)return null;
+       const mnx=Math.min(...xs),mxx=Math.max(...xs);
+       if((g.idir>0&&mxx>=N-2)||(g.idir<0&&mnx<=1)){g.inv.forEach(v=>v.y++);g.idir*=-1;}
+       else g.inv.forEach(v=>v.x+=g.idir);
+       const alive=g.inv.filter(v=>v.a);const drop=alive[(Math.abs(g.stepN)>>2)%alive.length];
+       if(drop)g.bomb.push({x:drop.x,y:drop.y+1});
+       for(const v of g.inv)if(v.a&&v.y>=g.py)return '侵略者に到達された！ 再挑戦';
+     }
+     return null;},
+   draw(ctx,g,CELL,N){
+     ctx.fillStyle='#7CFC7C';g.inv.forEach(v=>{if(v.a){ctx.fillRect((v.x+.2)*CELL,(v.y+.25)*CELL,CELL*.6,CELL*.5);}});
+     ctx.fillStyle='#fff';g.bul.forEach(b=>ctx.fillRect((b.x+.42)*CELL,(b.y+.1)*CELL,CELL*.16,CELL*.6));
+     ctx.fillStyle='#ff5a5a';g.bomb.forEach(b=>{ctx.beginPath();ctx.arc((b.x+.5)*CELL,(b.y+.5)*CELL,CELL*.22,0,7);ctx.fill();});
+     ctx.fillStyle='#ffcf33';ctx.beginPath();ctx.moveTo((g.px+.5)*CELL,(g.py+.1)*CELL);ctx.lineTo((g.px+.9)*CELL,(g.py+.9)*CELL);ctx.lineTo((g.px+.1)*CELL,(g.py+.9)*CELL);ctx.closePath();ctx.fill();},
+   route(g,N){
+     const alive=g.inv.filter(v=>v.a);if(!alive.length)return null;
+     let tgt=alive[0],bc=1e9;for(const v of alive){const c=Math.abs(v.x-g.px)+v.y*0.3;if(c<bc){bc=c;tgt=v;}}
+     // recommend aligning under the target column; dodge a bomb aimed at us
+     const danger=g.bomb.find(b=>b.x===g.px&&b.y<g.py);
+     const aimX = danger ? (g.px<=1? g.px+1 : g.px-1) : tgt.x;
+     return {from:[g.px,g.py],cells:[[aimX,g.py]],target:[tgt.x,tgt.y],danger:!!danger};},
+ },
+};
+
+let MG=null;
+function miniHTML(key){const c=PLAY[key];return `<div class="mini">
+  <h2 style="border-left-color:#c2410c;font-size:1.1rem">実際に遊んで採点（${c.title}）</h2>
+  <p class="sub">${c.help} 約30秒プレイすると<b>あなたの動き方から学習データと同じ特徴</b>を作り、実プレイヤーに照らして採点する。<b>プレイ中は右側に「今の打ち方」のライブ・コーチ</b>が出る（直近5秒のスタイルを強い層と比較）。</p>
   <div class="row">
     <div><canvas id="mg" width="380" height="380"></canvas>
       <div class="mono" style="margin-top:.4rem">残り <b id="mgt">30.0</b>s ／ スコア <b id="mgs">0</b> ／ <button class="btn" id="mgb">スタート</button></div>
       <label style="display:flex;align-items:center;gap:.4rem;margin-top:.45rem;font-size:.88rem">
         <input type="checkbox" id="mgroute" checked>
-        <span><b style="color:#2a7fb8">— 経路ヒント</b>を表示（<span class="sub">最寄りドットへ向かいゴーストを避ける貪欲経路。<b>参考ヒューリスティックでモデル由来ではない</b>——技量軸はルートを学習していない）</span></span>
+        <span><b style="color:#2a7fb8">— 経路ヒント</b>を表示（<span class="sub">${c.routeLabel}。<b>参考ヒューリスティックでモデル由来ではない</b>——技量軸はルートを学習していない）</span></span>
       </label>
     </div>
     <div>
@@ -217,21 +316,13 @@ function miniHTML(){return `<div class="mini">
     </div>
   </div></div>`;}
 
-// 11-dim mspacman feature vector from an action array — identical to load_atari/_atari_episode
-function mgFeat(a){
-  const hist=ATARI_ACTS.map(k=>a.filter(x=>x===k).length/a.length);
-  let sw=0;for(let i=1;i<a.length;i++)if(a[i]!==a[i-1])sw++; sw/=Math.max(a.length-1,1);
-  const pos=hist.filter(x=>x>0);
-  const ent=-pos.reduce((s,p)=>s+p*Math.log(p),0)/Math.log(ATARI_ACTS.length);
-  return [...hist,sw,ent];
-}
-let MG=null;
-function initMini(){
+function initMini(key){
   const cv=document.getElementById('mg'); if(!cv)return;
-  const N=19, CELL=cv.width/N;
-  MG={cv,ctx:cv.getContext('2d'),N,CELL,run:false};
+  const cfg=PLAY[key], N=cfg.N, CELL=cv.width/N;
+  MG={cv,ctx:cv.getContext('2d'),N,CELL,run:false,key,cfg,g:{score:0}};
   const keys={};
-  const set=(e,v)=>{const k=e.key; if(['ArrowUp','ArrowDown','ArrowLeft','ArrowRight'].includes(k)){keys[k]=v;e.preventDefault();}};
+  const KMAP={ArrowUp:'up',ArrowDown:'down',ArrowLeft:'left',ArrowRight:'right',' ':'fire',x:'interact',X:'interact'};
+  const set=(e,v)=>{const m=KMAP[e.key]; if(m){keys[m]=v;e.preventDefault();}};
   window.onkeydown=e=>set(e,1); window.onkeyup=e=>set(e,0);
   MG.keys=keys;
   const rt=document.getElementById('mgroute');
@@ -239,151 +330,91 @@ function initMini(){
   document.getElementById('mgb').onclick=()=>startMini();
   drawMini();
 }
-// Heuristic route hint (NOT model-derived): greedy path to the nearest dot that steers
-// clear of the ghost. Purely a play aid — the skill axis has no state->move policy.
-function routeTarget(){
-  if(!MG.dots||!MG.dots.size)return null;
-  let best=null,bc=1e9;
-  for(const k of MG.dots){const[x,y]=k.split(',').map(Number);
-    const d=Math.max(Math.abs(x-MG.px),Math.abs(y-MG.py));      // chebyshev (diagonals allowed)
-    const dg=Math.max(Math.abs(x-MG.gx),Math.abs(y-MG.gy));
-    const cost=d+(dg<3?(3-dg)*4:0);                              // avoid dots hugging the ghost
-    if(cost<bc){bc=cost;best=[x,y];}}
-  return best;
-}
-function computeRoute(){
-  const tgt=routeTarget(); if(!tgt)return [];
-  const path=[]; let x=MG.px,y=MG.py;
-  for(let i=0;i<16&&(x!==tgt[0]||y!==tgt[1]);i++){
-    let best=null,bc=1e9;
-    for(let dx=-1;dx<=1;dx++)for(let dy=-1;dy<=1;dy++){
-      if(!dx&&!dy)continue;
-      const nx=x+dx,ny=y+dy;
-      if(nx<1||ny<1||nx>MG.N-2||ny>MG.N-2)continue;
-      const chase=Math.max(Math.abs(nx-MG.gx),Math.abs(ny-MG.gy));
-      const c=Math.max(Math.abs(nx-tgt[0]),Math.abs(ny-tgt[1]))+(chase<=1?10:0); // dodge ghost
-      if(c<bc){bc=c;best=[nx,ny];}}
-    if(!best)break; x=best[0];y=best[1]; path.push([x,y]);
-  }
-  return path;
-}
-function newDots(N){const s=new Set();for(let y=1;y<N-1;y++)for(let x=1;x<N-1;x++)s.add(x+','+y);return s;}
 function startMini(){
-  const N=MG.N;
-  MG.px=1;MG.py=1; MG.gx=N-2;MG.gy=N-2;
-  MG.dots=newDots(N); MG.dots.delete('1,1');
-  MG.actions=[]; MG.t=30.0; MG.score=0; MG.run=true; MG.last=null; MG.acc=0; MG.idle=0;
+  const {cfg,N}=MG; MG.g={score:0}; cfg.init(MG.g,N);
+  MG.actions=[]; MG.t=30.0; MG.run=true; MG.acc=0; MG.idle=0; MG.stepN=0;
   document.getElementById('mgb').textContent='プレイ中…';
   document.getElementById('mgresult').style.display='none';
   document.getElementById('mgnote').style.display='none';
-  const live=document.getElementById('mglive'); live.style.display=''; document.getElementById('mgltips').innerHTML='';
+  document.getElementById('mglive').style.display=''; document.getElementById('mgltips').innerHTML='';
   document.getElementById('mglz').textContent='–'; document.getElementById('mglf').style.width='0%';
   MG.prev=performance.now();
   requestAnimationFrame(loopMini);
 }
-// Live style-coach: score the RECENT window (trailing 5 s) against real players, show
-// the tercile direction toward the strong-player norm — 100% data-grounded, no route/policy.
-const COACH_WIN=150; // 5 s at 30 Hz — recent-behaviour window for the reactive advice
+// Live style-coach: SCORE = cumulative play so far (stable); ADVICE = trailing 5 s window
+// (reactive). Both are the tercile direction to the strong-player norm — data-grounded.
+const COACH_WIN=150;
 function updateCoach(){
-  const d=state.data['mspacman'];
+  const d=state.data[MG.key], cfg=MG.cfg;
   if(MG.actions.length<20)return;
-  // SCORE = cumulative play so far (stable, converges to the final score) — a short
-  // window is too noisy for a percentile. ADVICE = trailing window (reactive to NOW).
-  const xzAll=stdz(mgFeat(MG.actions),d); const nb=knn(xzAll,d);
+  const nb=knn(stdz(cfg.feat(MG.actions),d),d);
   const z1=nb.reduce((s,p)=>s+p.z1p,0)/nb.length;
   document.getElementById('mglz').textContent=Math.round(z1);
   document.getElementById('mglf').style.width=z1+'%'; document.getElementById('mglm').style.left=z1+'%';
   const win=MG.actions.slice(-COACH_WIN);
-  const tips=advise(stdz(mgFeat(win),d),d);
+  const tips=advise(stdz(cfg.feat(win),d),d);
   document.getElementById('mgltips').innerHTML = tips.length
     ? tips.map(t=>`<span class="tip ${t.up?'up':'dn'}">${t.up?'▲':'▼'} ${t.name}を${t.up?'増やす':'減らす'}</span>`).join('')
     : '<span class="tip up">いい調子！ 強い層に近い動き</span>';
-  MG.idle = win.slice(-30).filter(x=>x===0).length/Math.min(win.length,30); // recent NOOP share
-}
-function actionCode(keys){
-  const up=keys.ArrowUp, dn=keys.ArrowDown, lf=keys.ArrowLeft, rt=keys.ArrowRight;
-  if(up&&rt)return 6; if(up&&lf)return 7; if(dn&&rt)return 8; if(dn&&lf)return 9;
-  if(up)return 2; if(rt)return 3; if(lf)return 4; if(dn)return 5; return 0; // NOOP
+  MG.idle = win.slice(-30).filter(x=>x===0).length/Math.min(win.length,30);
 }
 function loopMini(now){
   if(!MG.run)return;
   const dt=(now-MG.prev)/1000; MG.prev=now; MG.t-=dt; MG.acc+=dt;
-  // Sample the ACTION at 30 Hz to match the real Atari stream's density: holding a
-  // direction yields many identical consecutive actions -> realistic LOW switch rate
-  // (real q5-95 = 0.01-0.07). Move the sprite only every MOVE_EVERY samples so it
-  // stays playable. NOOP is recorded whenever no key is held.
-  const STEP=1/30, MOVE_EVERY=4, GHOST_EVERY=8;
+  const STEP=1/30, cfg=MG.cfg; // 30 Hz action sampling matches the real stream's low switch rate
   while(MG.acc>=STEP){
     MG.acc-=STEP;
-    const a=actionCode(MG.keys); MG.actions.push(a);
-    MG.stepN=(MG.stepN||0)+1;
-    if(MG.stepN%MOVE_EVERY===0){
-      let nx=MG.px,ny=MG.py;
-      if(a===2||a===6||a===7)ny--; if(a===5||a===8||a===9)ny++;
-      if(a===3||a===6||a===8)nx++; if(a===4||a===7||a===9)nx--;
-      nx=Math.max(1,Math.min(MG.N-2,nx)); ny=Math.max(1,Math.min(MG.N-2,ny));
-      MG.px=nx;MG.py=ny;
-      const key=MG.px+','+MG.py;
-      if(MG.dots.has(key)){MG.dots.delete(key);MG.score+=10;}
-    }
-    if(MG.stepN%GHOST_EVERY===0){
-      if(MG.gx<MG.px)MG.gx++; else if(MG.gx>MG.px)MG.gx--;
-      if(MG.gy<MG.py)MG.gy++; else if(MG.gy>MG.py)MG.gy--;
-    }
-    if(MG.gx===MG.px&&MG.gy===MG.py){endMini(true);return;}
-    if(MG.stepN%15===0)updateCoach(); // refresh the live coach ~2x/sec
+    const a=cfg.action(MG.keys); MG.actions.push(a); MG.stepN++;
+    const dead=cfg.step(MG.g,a,MG.N);
+    if(dead){endMini(dead);return;}
+    if(MG.stepN%15===0)updateCoach();
   }
   document.getElementById('mgt').textContent=Math.max(0,MG.t).toFixed(1);
-  document.getElementById('mgs').textContent=MG.score;
+  document.getElementById('mgs').textContent=MG.g.score;
   drawMini();
-  if(MG.t<=0){endMini(false);return;}
+  if(MG.t<=0){endMini(null);return;}
   requestAnimationFrame(loopMini);
 }
 function drawMini(){
-  const {ctx,cv,N,CELL}=MG; ctx.clearRect(0,0,cv.width,cv.height);
+  const {ctx,cv,N,CELL,cfg,g}=MG; ctx.clearRect(0,0,cv.width,cv.height);
   ctx.fillStyle='#0b0b1a';ctx.fillRect(0,0,cv.width,cv.height);
-  if(MG.dots){ctx.fillStyle='#ffd76a';MG.dots.forEach(k=>{const[x,y]=k.split(',').map(Number);ctx.beginPath();ctx.arc((x+.5)*CELL,(y+.5)*CELL,2,0,7);ctx.fill();});}
-  // heuristic route hint (draw under the sprites)
-  if(MG.px!=null&&MG.routeOn&&MG.dots&&MG.dots.size){
-    const route=computeRoute();
-    if(route.length){
-      ctx.strokeStyle='rgba(90,170,235,.85)';ctx.lineWidth=3;ctx.setLineDash([5,5]);
-      ctx.beginPath();ctx.moveTo((MG.px+.5)*CELL,(MG.py+.5)*CELL);
-      route.forEach(([x,y])=>ctx.lineTo((x+.5)*CELL,(y+.5)*CELL));ctx.stroke();ctx.setLineDash([]);
-      const t=route[route.length-1]; // target marker
-      ctx.strokeStyle='rgba(90,170,235,.95)';ctx.lineWidth=2;ctx.beginPath();ctx.arc((t[0]+.5)*CELL,(t[1]+.5)*CELL,CELL*.45,0,7);ctx.stroke();
-      const [ax,ay]=route[0]; // next-step arrowhead
-      const ang=Math.atan2(ay-MG.py,ax-MG.px),cx=(ax+.5)*CELL,cy=(ay+.5)*CELL,r=CELL*.32;
-      ctx.fillStyle='rgba(90,170,235,.95)';ctx.beginPath();
-      ctx.moveTo(cx+Math.cos(ang)*r,cy+Math.sin(ang)*r);
-      ctx.lineTo(cx+Math.cos(ang+2.5)*r,cy+Math.sin(ang+2.5)*r);
-      ctx.lineTo(cx+Math.cos(ang-2.5)*r,cy+Math.sin(ang-2.5)*r);ctx.closePath();ctx.fill();
+  // heuristic route hint (under sprites)
+  if(MG.run&&MG.routeOn&&cfg.route){
+    const r=cfg.route(g,N);
+    if(r){const B='rgba(90,170,235,';const col=r.danger?'rgba(255,120,90,':B;
+      ctx.strokeStyle=col+'.85)';ctx.lineWidth=3;ctx.setLineDash([5,5]);
+      ctx.beginPath();ctx.moveTo((r.from[0]+.5)*CELL,(r.from[1]+.5)*CELL);
+      r.cells.forEach(([x,y])=>ctx.lineTo((x+.5)*CELL,(y+.5)*CELL));ctx.stroke();ctx.setLineDash([]);
+      if(r.target){ctx.strokeStyle=col+'.95)';ctx.lineWidth=2;ctx.beginPath();ctx.arc((r.target[0]+.5)*CELL,(r.target[1]+.5)*CELL,CELL*.45,0,7);ctx.stroke();}
+      const nx=r.cells[0]||r.target;
+      if(nx){const ang=Math.atan2(nx[1]-r.from[1],nx[0]-r.from[0]),cx=(nx[0]+.5)*CELL,cy=(nx[1]+.5)*CELL,rr=CELL*.32;
+        ctx.fillStyle=col+'.95)';ctx.beginPath();
+        ctx.moveTo(cx+Math.cos(ang)*rr,cy+Math.sin(ang)*rr);
+        ctx.lineTo(cx+Math.cos(ang+2.5)*rr,cy+Math.sin(ang+2.5)*rr);
+        ctx.lineTo(cx+Math.cos(ang-2.5)*rr,cy+Math.sin(ang-2.5)*rr);ctx.closePath();ctx.fill();}
     }
   }
-  if(MG.gx!=null){ctx.fillStyle='#ff5a5a';ctx.beginPath();ctx.arc((MG.gx+.5)*CELL,(MG.gy+.5)*CELL,CELL*.4,0,7);ctx.fill();}
-  if(MG.px!=null){ctx.fillStyle='#ffcf33';ctx.beginPath();ctx.arc((MG.px+.5)*CELL,(MG.py+.5)*CELL,CELL*.42,0.25*Math.PI,1.75*Math.PI);ctx.lineTo((MG.px+.5)*CELL,(MG.py+.5)*CELL);ctx.fill();
-    // subtle idle cue: ring + nudge when recently too static (data says ▼NOOP raises skill)
-    if(MG.run&&MG.idle>0.6){ctx.strokeStyle='rgba(217,119,87,.9)';ctx.lineWidth=2;ctx.beginPath();ctx.arc((MG.px+.5)*CELL,(MG.py+.5)*CELL,CELL*.7,0,7);ctx.stroke();
-      ctx.fillStyle='rgba(217,119,87,.95)';ctx.font='bold 12px sans-serif';ctx.fillText('動こう',(MG.px+.5)*CELL-15,(MG.py-.4)*CELL);}
-  }
+  cfg.draw(ctx,g,CELL,N);
+  // subtle idle cue (data: reducing NOOP raises skill)
+  if(MG.run&&MG.idle>0.6&&g.px!=null){ctx.strokeStyle='rgba(217,119,87,.9)';ctx.lineWidth=2;ctx.beginPath();ctx.arc((g.px+.5)*CELL,(g.py+.5)*CELL,CELL*.7,0,7);ctx.stroke();
+    ctx.fillStyle='rgba(217,119,87,.95)';ctx.font='bold 12px sans-serif';ctx.fillText(cfg.idleName,(g.px+.5)*CELL-18,(g.py-.4)*CELL);}
 }
-function endMini(caught){
-  MG.run=false; document.getElementById('mgb').textContent=caught?'ゴーストに捕まった！ 再挑戦':'もう一度';
+function endMini(deadMsg){
+  MG.run=false; document.getElementById('mgb').textContent=deadMsg||'もう一度';
   document.getElementById('mglive').style.display='none';
-  const a=MG.actions;
+  const a=MG.actions, cfg=MG.cfg, d=state.data[MG.key];
   if(a.length<30){document.getElementById('mgnote').style.display='';document.getElementById('mgnote').textContent='プレイが短すぎ（30ティック未満）。もう少し動いてみて。';return;}
   document.getElementById('mgresult').style.display='';
-  const d=state.data['mspacman'];
-  const xz=stdz(mgFeat(a),d); const nb=knn(xz,d);
+  const xz=stdz(cfg.feat(a),d); const nb=knn(xz,d);
   const z1=nb.reduce((s,p)=>s+p.z1p,0)/nb.length;
   const sk=nb.reduce((s,p)=>s+p.skill,0)/nb.length;
   document.getElementById('mgz').textContent=Math.round(z1);
   document.getElementById('mgf').style.width=z1+'%';document.getElementById('mgm').style.left=z1+'%';
   const tips=advise(xz,d);
   document.getElementById('mgtips').innerHTML=tips.map(t=>`<span class="tip ${t.up?'up':'dn'}">${t.up?'▲':'▼'} ${t.name}を${t.up?'増やす':'減らす'}</span>`).join('')||'<span class="tip">上位層と近い動き</span>';
-  document.getElementById('mgnbr').innerHTML=`近い実プレイヤー ${nb.length}人：スコア <b>${Math.round(sk)}</b>（近傍平均）／あなたのドット ${MG.score}`;
+  document.getElementById('mgnbr').innerHTML=`近い実プレイヤー ${nb.length}人：${d.label} <b>${Math.round(sk)}</b>（近傍平均）／あなたの${cfg.scoreLabel} ${MG.g.score}`;
   const note=document.getElementById('mgnote');note.style.display='';
-  note.innerHTML='この採点は<b>実際のMs.パックマン実プレイヤー382人</b>に照らしたもの。動きが単調（静止が多い・方向が偏る）だと下位、活発で多彩だと上位に寄る。';
+  note.innerHTML=`この採点は<b>実際の${d.name}実プレイヤー${d.n}人</b>に照らしたもの。${cfg.note}`;
 }
 boot();
 </script>
