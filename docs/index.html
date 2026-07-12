@@ -40,9 +40,9 @@ code{background:#f0eee9;padding:.1rem .3rem;border-radius:4px}
 教師つき軸 AUROC 0.80 &gt; 後付け 0.70 と確認）。技量は単調・順序尺度なので<b>直線</b>、円環は移動方向用に温存。</p>
 
 <h2>結果一覧</h2>
-<table><tr><th>ゲーム</th><th>種別</th><th>件数</th><th>技量ラベル範囲</th><th>初心者vs熟練 AUROC</th><th>z₁×技量相関</th></tr>
+<table><tr><th>ゲーム</th><th>種別</th><th>件数</th><th>技量ラベル範囲</th><th>初心者vs熟練 AUROC</th><th>z₁×技量相関 r</th></tr>
 <tr><td>Ms.パックマン</td><td>1人用</td><td>382</td><td>スコア 10–18981</td><td><b>0.796</b></td><td>0.484</td></tr><tr><td>Space Invaders</td><td>1人用</td><td>423</td><td>スコア 5–1960</td><td><b>0.661</b></td><td>0.37</td></tr><tr><td>チェス</td><td>対戦</td><td>7,712</td><td>レート 856–2240</td><td><b>0.615</b></td><td>0.173</td></tr><tr><td>囲碁</td><td>対戦</td><td>672</td><td>ランク -4–40</td><td><b>0.546</b></td><td>0.118</td></tr><tr><td>Overcooked</td><td>協力</td><td>172</td><td>層内順位% 0–100</td><td><b>0.629</b></td><td>0.214</td></tr><tr><td>Hanabi(2人)</td><td>協力</td><td>1,858</td><td>花火点 13–25</td><td><b>0.826</b></td><td>0.546</td></tr></table>
-<p class="sub">AUROC 0.5=勘・1.0=完璧。プレイ<b>スタイルだけ</b>から巧さをどれだけ読めるか。</p>
+<p class="sub">AUROC 0.5=勘・1.0=完璧。<b>z₁×技量相関 r</b>＝技量軸 z₁ と実技量ラベルの相関、±1が完全・0が無関係、正＝技量軸と整合（大きいほど軸が技量をよく捉える）。プレイ<b>スタイルだけ</b>から巧さをどれだけ読めるか。</p>
 
 <section><h2>横断：単一フローで技量軸の意味を共通化</h2>
 <p>各ゲーム別々のフローだと、チェスの z₁ と Hanabi の z₁ は別モデルの別座標で、直接は比べられない。そこで
@@ -59,7 +59,7 @@ code{background:#f0eee9;padding:.1rem .3rem;border-radius:4px}
 <tr><td colspan="3" style="text-align:right"><b>共通軸・全体 AUROC</b></td><td><b>0.635</b></td><td><b>0.636</b></td></tr></table>
 <p class="interp">たった<b>4 個の汎用スタイル特徴</b>・1 本の共通 z₁ で、全体 AUROC <b>0.635</b>。
 「巧さは<b>行動の散らし方・切替・打ち筋のブレ</b>に共通して滲む」＝技量軸が<b>ゲームを跨いで意味を持つ</b>。<br>・<b>方式B（固有エンコーダ）</b>は各ゲームの全特徴を活かすので、<b>チェス（0.583）と Overcooked（0.944）</b>が回復・向上。ただし<b>ただ乗りではない</b>：プール学習は個別フローより難しく、Hanabi/SI は逆に少し落ちる。全体はA・Bとも <b>約0.635</b>＝<b>与える情報量に依らず共通軸は同じ水準</b>に着地する（＝軸の意味がゲームを跨いで安定）。
-<br><b>▲</b>＝個別フロー以上。</p>
+<br>表中の <b>▲</b>＝個別フロー以上（AUROCが同等以上）／<b>▽</b>＝個別フロー未満。優劣ではなく個別フロー比の増減を示す。</p>
 </section>
 
 <section><h2>Phase 2：技量軸で「採点」と「一歩上の助言」</h2>
